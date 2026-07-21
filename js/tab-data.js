@@ -37,23 +37,38 @@ function effectiveDecks(player) {
   return player.decks.filter((_, i) => !WARS[i] || !WARS[i].isLive);
 }
 
-function buildWarHeaders() {
+// Pure calculation for the war-column headers — placement rank/medal per
+// shown war. Zero HTML. buildWarHeaders() below just renders this.
+function calcWarHeaders() {
   const ew = effectiveWars();
   const shown = warWindow === 0 ? ew : ew.slice(-Math.max(warWindow, 3));
-  return { shown, html: shown.map((w, i) => {
+  const headers = shown.map(w => {
     const lbl = w.label || ('War ' + w.id);
     const standing = getOurStandingsForWar(w.id);
-    const _rk = standing ? (getAdjustedRank(standing, WAR_STANDINGS[String(w.id)]) || 0) : 0;
-    const _suf = _rk === 1 ? 'st' : _rk === 2 ? 'nd' : _rk === 3 ? 'rd' : 'th';
-    const _emoji = _rk === 1 ? '🥇' : _rk === 2 ? '🥈' : _rk === 3 ? '🥉' : '';
-    const placementHtml = standing
-      ? `<div class="war-place place-${_rk}" style="font-size:8px;margin-top:2px;color:${_rk === 1 ? '#ffd700' : _rk === 2 ? '#c0c0c0' : _rk === 3 ? '#cd7f32' : 'var(--text-dim)'}"><i class="rb rb-${_rk}">${_emoji}</i> ${_rk}${_suf}</div>`
-      : '';
-    return `<th class="war-th">${lbl}${placementHtml}</th>`;
-  }).join('') };
+    const rank = standing ? (getAdjustedRank(standing, WAR_STANDINGS[String(w.id)]) || 0) : 0;
+    const suffix = rank === 1 ? 'st' : rank === 2 ? 'nd' : rank === 3 ? 'rd' : 'th';
+    const emoji  = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
+    return { label: lbl, hasStanding: !!standing, rank, suffix, emoji };
+  });
+  return { shown, headers };
 }
 
-function buildRow(p, rank, isInactiveRow, shownWars) {
+// Render the war-column <th> headers from calcWarHeaders()'s output.
+function buildWarHeaders() {
+  const { shown, headers } = calcWarHeaders();
+  const html = headers.map(h => {
+    const placementHtml = h.hasStanding
+      ? `<div class="war-place place-${h.rank}" style="font-size:8px;margin-top:2px;color:${h.rank === 1 ? '#ffd700' : h.rank === 2 ? '#c0c0c0' : h.rank === 3 ? '#cd7f32' : 'var(--text-dim)'}"><i class="rb rb-${h.rank}">${h.emoji}</i> ${h.rank}${h.suffix}</div>`
+      : '';
+    return `<th class="war-th">${h.label}${placementHtml}</th>`;
+  }).join('');
+  return { shown, html };
+}
+
+// Pure calculation for one player's Data-tab table row — every derived
+// number, threshold class, and per-war cell value. Zero HTML.
+// buildRow() below just renders this object.
+function calcRow(p, shownWars) {
   const avg  = calcAvg(swapperAwareScores(p), warWindow);
   const part = calcParticipation(swapperAwareScores(p), warWindow);
   // Avg battles: respects warWindow — same window as avg/participation columns.
@@ -70,21 +85,16 @@ function buildRow(p, rank, isInactiveRow, shownWars) {
   const avgDecksDisplay = avgDecks !== null ? (avgDecks).toFixed(1) + '/16' : '—';
   // Map avg decks to same color class as avg score for visual consistency
   // 16=avg-s, 14-15=avg-a, 12-13=avg-b, 8-11=avg-c, below=avg-d
-  const avgDecksFracClass = avgDecks === null ? '' 
+  const avgDecksFracClass = avgDecks === null ? ''
     : avgDecks >= 15.5 ? 'avg-s'
     : avgDecks >= 13.5 ? 'avg-a'
     : avgDecks >= 11.5 ? 'avg-b'
     : avgDecks >= 7.5  ? 'avg-c'
     : 'avg-d';
-  const tr   = calcTrend(swapperAwareScores(p), warWindow);
+  const trendType = calcTrend(swapperAwareScores(p), warWindow);
   const promo = promoRec(p, avg, part);
 
   const partClass = part.pct >= PART_HIGH ? 'part-high' : part.pct >= PART_MID ? 'part-mid' : 'part-low';
-  const trendHtml = tr === 'up'
-    ? '<span class="trend-up">▲</span>'
-    : tr === 'down'
-    ? '<span class="trend-down">▼</span>'
-    : '<span class="trend-flat"></span>';
 
   // War cells — align to WARS array
   const ew = effectiveWars();
@@ -99,33 +109,58 @@ function buildRow(p, rank, isInactiveRow, shownWars) {
     // Swappers show · for zero scores — presence without battling is by design
     const txt = s === null ? '·' : (s === 0 && isSwapperPlayer) ? '·' : s === 0 ? '✗' : s.toLocaleString();
     const effectiveCls = (s === 0 && isSwapperPlayer) ? 'wc-absent' : cls;
-    // Deck fraction: only show when battles toggle is ON
-    const deckHtml = !sortBattles ? ''
-      : isRaw
-        ? '<span class="deck-frac deck-na">NA</span>'
-        : d !== null
-          ? `<span class="deck-frac ${deckFracClass(d)}">${d}/16</span>`
-          : '';
+    const deckClass = d !== null ? deckFracClass(d) : null;
     const personalBest = Math.max(...p.scores.filter(s => s !== null && s > 0));
     const isPersonalBest = showPersonalBest && s !== null && s > 0 && s === personalBest;
-    const inner = isPersonalBest ? `<span class="pb-num">${txt}</span>` : txt;
-    return `<td class="wc ${effectiveCls}${isPersonalBest ? ' pb' : ''}"><span class="wcell">${inner}${deckHtml}</span></td>`;
+    return { text: txt, cellClass: effectiveCls, isPersonalBest, isRaw, deckValue: d, deckClass };
+  });
+
+  return {
+    avg, avgClass: avgClass(avg), part, partClass,
+    avgDecksDisplay, avgDecksFracClass, trendType, promo,
+    tag: playerTag(p), posClass: posClass(p.pos), isInClan: isCurrentlyInClan(p),
+    warCells
+  };
+}
+
+// Render one player's Data-tab table row from calcRow()'s output.
+// Pure HTML building — add new numbers to calcRow() instead of deriving
+// them inline in a template string.
+function buildRow(p, rank, isInactiveRow, shownWars) {
+  const r = calcRow(p, shownWars);
+
+  const trendHtml = r.trendType === 'up'
+    ? '<span class="trend-up">▲</span>'
+    : r.trendType === 'down'
+    ? '<span class="trend-down">▼</span>'
+    : '<span class="trend-flat"></span>';
+
+  const warCells = r.warCells.map(c => {
+    // Deck fraction: only show when battles toggle is ON
+    const deckHtml = !sortBattles ? ''
+      : c.isRaw
+        ? '<span class="deck-frac deck-na">NA</span>'
+        : c.deckValue !== null
+          ? `<span class="deck-frac ${c.deckClass}">${c.deckValue}/16</span>`
+          : '';
+    const inner = c.isPersonalBest ? `<span class="pb-num">${c.text}</span>` : c.text;
+    return `<td class="wc ${c.cellClass}${c.isPersonalBest ? ' pb' : ''}"><span class="wcell">${inner}${deckHtml}</span></td>`;
   }).join('');
 
   return `<tr class="${isInactiveRow ? 'inactive-row' : ''}">
     <td class="td-rank">${rank}</td>
-    <td><span class="player-name">${p.name}${playerTagHtml(playerTag(p))}</span>${promo}</td>
-    <td style="white-space:nowrap"><span class="pos-badge ${posClass(p.pos)}">${p.pos}</span></td>
+    <td><span class="player-name">${p.name}${playerTagHtml(r.tag)}</span>${r.promo}</td>
+    <td style="white-space:nowrap"><span class="pos-badge ${r.posClass}">${p.pos}</span></td>
     <td class="td-active" style="text-align:center;min-width:65px">
-      <span class="active-light ${isCurrentlyInClan(p) ? 'on' : 'off'}" title="${isCurrentlyInClan(p) ? 'In clan now' : 'Not in clan'}"></span>
+      <span class="active-light ${r.isInClan ? 'on' : 'off'}" title="${r.isInClan ? 'In clan now' : 'Not in clan'}"></span>
     </td>
     <td class="td-part"><div class="part-row">
-      <span class="part-pct">${Math.round(part.pct * 100)}%</span>
-      <div class="part-bar-bg"><div class="part-bar-fill ${partClass}" style="width:${part.pct*100}%"></div></div>
+      <span class="part-pct">${Math.round(r.part.pct * 100)}%</span>
+      <div class="part-bar-bg"><div class="part-bar-fill ${r.partClass}" style="width:${r.part.pct*100}%"></div></div>
     </div></td>
     <td class="td-trend">${trendHtml}</td>
-    <td class="td-avg" style="text-align:center;white-space:nowrap"><span class="wcell ${avgDecksFracClass}">${avgDecksDisplay}</span></td>
-    <td class="td-avg ${avgClass(avg)}"><span class="wcell">${avg > 0 ? avg.toLocaleString() : '—'}</span></td>
+    <td class="td-avg" style="text-align:center;white-space:nowrap"><span class="wcell ${r.avgDecksFracClass}">${r.avgDecksDisplay}</span></td>
+    <td class="td-avg ${r.avgClass}"><span class="wcell">${r.avg > 0 ? r.avg.toLocaleString() : '—'}</span></td>
     ${warCells}
   </tr>`;
 }
