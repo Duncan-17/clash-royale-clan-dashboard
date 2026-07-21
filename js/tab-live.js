@@ -363,7 +363,11 @@ function buildWarSummaryBox(sortedPlayers, currentDay, isSheetReview = false) {
 
 // Build the HTML for one day column (dayIdx 0–3) in the live war grid.
 // Includes a header with a cumulative battle counter and one card per player.
-function buildLiveDayColumn(dayIdx, sortedPlayers, currentDay, warStarted, isSheetReview = false) {
+// Pure calculation for one day column (dayIdx 0-3) in the live war grid —
+// header aggregate stats (battles/fame/contributors for the day) plus a
+// per-player data array (decks/fame/tag/status classes). Zero HTML.
+// buildLiveDayColumn() below just renders this object.
+function calcDayColumn(dayIdx, sortedPlayers, currentDay, warStarted, isSheetReview = false) {
   const dayLabels   = ['Day 1', 'Day 2', 'Day 3', 'Day 4'];
   const label       = dayLabels[dayIdx];
   const dayNum      = dayIdx + 1;
@@ -472,31 +476,10 @@ function buildLiveDayColumn(dayIdx, sortedPlayers, currentDay, warStarted, isShe
     : memberFillRatio >= 0.50 ? 'var(--orange)'
     : 'var(--red)';
 
-  // Text styles — high contrast white on colored header backgrounds
-  const numStyle  = `font-family:Orbitron,monospace;font-weight:700;color:#ffffff`;
-  const capStyle  = `font-family:'Share Tech Mono',monospace;color:rgba(255,255,255,0.7)`;
   const fameColor = isFuture ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.95)';
-  const counterHtml = `<div class="live-day-label">${label} — ${statusLabel}</div>`
-    + (isFuture
-      ? `<div class="live-day-counter" style="color:rgba(255,255,255,0.5)">0<span style="${capStyle};font-size:10px">/${dayCap}</span></div>`
-      : `<div style="display:flex;justify-content:space-between;align-items:center;width:100%;margin-top:2px">`
-        + `<div style="display:flex;flex-direction:column;gap:3px">`
-        + `<div style="${numStyle};font-size:18px;line-height:1">${dayBattles}<span style="${capStyle};font-size:11px">/${dayCap}</span></div>`
-        + `<div style="${numStyle};font-size:13px;line-height:1;color:${memberColor}">${dayContributors}<span style="${capStyle};font-size:10px">/${MEMBER_CAP} members</span></div>`
-        + `</div>`
-        + `<div style="text-align:center;flex:1;padding:0 8px">`
-        + `<div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:rgba(255,255,255,0.6);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:1px">fame</div>`
-        + `<div style="${numStyle};font-size:16px;line-height:1;color:${fameColor}">${dayFame > 0 ? dayFame.toLocaleString() : '—'}</div>`
-        + `</div>`
-        + `<div style="text-align:right">`
-        + `<div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:rgba(255,255,255,0.6);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:1px">cumulative</div>`
-        + `<div style="${numStyle};font-size:14px;line-height:1;color:rgba(255,255,255,0.85)">${cumBattles}<span style="${capStyle};font-size:10px">/${cumCap}</span></div>`
-        + `</div>`
-        + `</div>`
-    );
 
-  // ── Player cards (with row number) ────────────────────
-  const cards = sortedPlayers.map((p, idx) => {
+  // ── Per-player data (no HTML) ────────────────────────
+  const players = sortedPlayers.map((p, idx) => {
     const sheet = LIVE_SHEET_DATA[p.name.toLowerCase()];
     let decks = 0, fame = 0;
 
@@ -524,13 +507,10 @@ function buildLiveDayColumn(dayIdx, sortedPlayers, currentDay, warStarted, isShe
     const isMatch = searchStr && p.name.toLowerCase().includes(searchStr.toLowerCase());
     const isComplete = decks >= DECKS_PER_DAY;
     const isPartial  = !isComplete && decks > 0;
-    const showDash   = isFuture && warStarted;
     const cardClass  = (isFuture && warStarted) ? 'future-day'
       : isComplete ? 'complete'
       : isPartial  ? 'partial'
       : 'incomplete';
-    const todayClass  = isToday ? 'today-card' : '';
-    const matchClass  = isMatch ? 'search-match' : '';
     const decksClass  = decks >= DECKS_PER_DAY ? 'full' : decks > 0 ? 'partial' : 'empty';
 
     // Look up the PLAYERS entry for tag detection
@@ -540,17 +520,62 @@ function buildLiveDayColumn(dayIdx, sortedPlayers, currentDay, warStarted, isShe
       : SWAPPER_NAMES.has(cardKey) ? 'swapper'
       : (!LIVE_ROLES[cardKey] ? 'removed' : null);
 
-    return `<div class="live-player-card ${cardClass} ${todayClass} ${matchClass}">`
+    return { name: p.name, decks, fame, tag, isMatch, cardClass, decksClass };
+  });
+
+  return {
+    label, statusLabel, headerClass, isFuture, isToday,
+    dayBattles, dayCap, cumBattles, cumCap, dayFame, fameColor,
+    dayContributors, MEMBER_CAP, memberColor,
+    showDash: isFuture && warStarted,
+    players
+  };
+}
+
+// Render one day column (dayIdx 0-3) from calcDayColumn()'s output.
+// Pure HTML building — add new numbers to calcDayColumn() instead of
+// deriving them inline here.
+function buildLiveDayColumn(dayIdx, sortedPlayers, currentDay, warStarted, isSheetReview = false) {
+  const d = calcDayColumn(dayIdx, sortedPlayers, currentDay, warStarted, isSheetReview);
+
+  // Text styles — high contrast white on colored header backgrounds
+  const numStyle = `font-family:Orbitron,monospace;font-weight:700;color:#ffffff`;
+  const capStyle = `font-family:'Share Tech Mono',monospace;color:rgba(255,255,255,0.7)`;
+  const counterHtml = `<div class="live-day-label">${d.label} — ${d.statusLabel}</div>`
+    + (d.isFuture
+      ? `<div class="live-day-counter" style="color:rgba(255,255,255,0.5)">0<span style="${capStyle};font-size:10px">/${d.dayCap}</span></div>`
+      : `<div style="display:flex;justify-content:space-between;align-items:center;width:100%;margin-top:2px">`
+        + `<div style="display:flex;flex-direction:column;gap:3px">`
+        + `<div style="${numStyle};font-size:18px;line-height:1">${d.dayBattles}<span style="${capStyle};font-size:11px">/${d.dayCap}</span></div>`
+        + `<div style="${numStyle};font-size:13px;line-height:1;color:${d.memberColor}">${d.dayContributors}<span style="${capStyle};font-size:10px">/${d.MEMBER_CAP} members</span></div>`
+        + `</div>`
+        + `<div style="text-align:center;flex:1;padding:0 8px">`
+        + `<div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:rgba(255,255,255,0.6);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:1px">fame</div>`
+        + `<div style="${numStyle};font-size:16px;line-height:1;color:${d.fameColor}">${d.dayFame > 0 ? d.dayFame.toLocaleString() : '—'}</div>`
+        + `</div>`
+        + `<div style="text-align:right">`
+        + `<div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:rgba(255,255,255,0.6);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:1px">cumulative</div>`
+        + `<div style="${numStyle};font-size:14px;line-height:1;color:rgba(255,255,255,0.85)">${d.cumBattles}<span style="${capStyle};font-size:10px">/${d.cumCap}</span></div>`
+        + `</div>`
+        + `</div>`
+    );
+
+  // ── Player cards (with row number) ────────────────────
+  const cards = d.players.map((p, idx) => {
+    const todayClass = d.isToday ? 'today-card' : '';
+    const matchClass = p.isMatch ? 'search-match' : '';
+
+    return `<div class="live-player-card ${p.cardClass} ${todayClass} ${matchClass}">`
       + `<span style="font-family:Share Tech Mono,monospace;font-size:10px;color:var(--text-dim);min-width:18px;text-align:right;margin-right:6px">${idx + 1}</span>`
-      + `<span class="live-card-name">${p.name}${playerTagHtml(tag, 'dot')}</span>`
+      + `<span class="live-card-name">${p.name}${playerTagHtml(p.tag, 'dot')}</span>`
       + `<div class="live-card-right">`
-      + `<span class="live-card-decks ${decksClass}">${showDash ? '-/4' : `${decks}/4`}</span>`
-      + `<span class="live-card-fame">${showDash ? '-' : fame > 0 ? fame.toLocaleString() : '0'}</span>`
+      + `<span class="live-card-decks ${p.decksClass}">${d.showDash ? '-/4' : `${p.decks}/4`}</span>`
+      + `<span class="live-card-fame">${d.showDash ? '-' : p.fame > 0 ? p.fame.toLocaleString() : '0'}</span>`
       + `</div></div>`;
   }).join('');
 
   return `<div class="live-day-col">`
-    + `<div class="live-day-header ${headerClass}">${counterHtml}</div>`
+    + `<div class="live-day-header ${d.headerClass}">${counterHtml}</div>`
     + cards
     + `</div>`;
 }
