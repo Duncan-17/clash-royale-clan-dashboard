@@ -64,7 +64,12 @@ function buildWarSummaryPlaceholder() {
 // Build the top-of-page summary box for Live mode: shows war-wide metrics at a glance
 // (% battles missed, cumulative score, score vs avg, avg player score vs avg, letter grade placeholder).
 // currentDay/warStarted determine how far through the war we are for the missed-battle calc.
-function buildWarSummaryBox(sortedPlayers, currentDay, isSheetReview = false) {
+// Pure calculation for the Live tab's 7-card summary box — computes every
+// number, threshold color, and label the cards display, with zero HTML.
+// buildWarSummaryBox() below just renders this object; if you need one of
+// these numbers anywhere else (e.g. a future export or a different card
+// layout), call this instead of re-deriving it.
+function calcWarSummary(sortedPlayers, currentDay, isSheetReview = false) {
   // ── Use SNAPSHOT totals as source of truth ───────────────────────────────
   // LIVE_SHEET_DATA is built from SNAPSHOTS (hourly GAS writes), which store
   // genuine CUM_FAME/CUM_DECKS from the CR API — correctly cumulative across
@@ -293,6 +298,23 @@ function buildWarSummaryBox(sortedPlayers, currentDay, isSheetReview = false) {
   else if (gradeScore >= 50) { letterGrade = 'D'; gradeColor = C_ORANGE; }
   else                       { letterGrade = 'F'; gradeColor = C_RED; }
 
+  return {
+    pctMissed, missedColor, missedDecksTotal, decksExpectedSoFar,
+    totalFameNow, windowLabel,
+    historicalClanTotalAvg, totalVsAvgPct, totalVsAvgColor, totalVsAvgSign,
+    currentPlayerAvg, countedPlayersCount: countedPlayers.length,
+    historicalPlayerAvg, playerVsAvgPct, playerVsAvgColor, playerVsAvgSign,
+    rankMedal, rankColor, rankOrdinal, rankSublabel, rankUnknown,
+    gradeScore, letterGrade, gradeColor
+  };
+}
+
+// Render the Live tab's 7-card summary box from calcWarSummary()'s output.
+// Pure HTML building — no computation belongs in here; add new numbers to
+// calcWarSummary() instead of deriving them inline in a template string.
+function buildWarSummaryBox(sortedPlayers, currentDay, isSheetReview = false) {
+  const s = calcWarSummary(sortedPlayers, currentDay, isSheetReview);
+
   const stat = (label, valueHtml, sublabel = '') => `
     <div class="live-stat-card">
       <div class="live-stat-label">${label}</div>
@@ -303,38 +325,38 @@ function buildWarSummaryBox(sortedPlayers, currentDay, isSheetReview = false) {
   return `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
     ${stat(
       'Battles Missed',
-      `<div style="font-family:Orbitron,monospace;font-size:22px;font-weight:700;color:${missedColor}">${pctMissed.toFixed(1)}%</div>`,
-      `${missedDecksTotal} of ${decksExpectedSoFar} expected`
+      `<div style="font-family:Orbitron,monospace;font-size:22px;font-weight:700;color:${s.missedColor}">${s.pctMissed.toFixed(1)}%</div>`,
+      `${s.missedDecksTotal} of ${s.decksExpectedSoFar} expected`
     )}
     ${stat(
       'War Placement',
-      `<div style="font-family:Orbitron,monospace;font-size:22px;font-weight:700;color:${rankColor}">${rankMedal ? rankMedal + ' ' : ''}${rankOrdinal}</div>`,
-      rankSublabel
+      `<div style="font-family:Orbitron,monospace;font-size:22px;font-weight:700;color:${s.rankColor}">${s.rankMedal ? s.rankMedal + ' ' : ''}${s.rankOrdinal}</div>`,
+      s.rankSublabel
     )}
     ${stat(
       'Cumulative Score',
-      `<div style="font-family:Orbitron,monospace;font-size:22px;font-weight:700;color:${C_GOLD}">${Math.round(totalFameNow).toLocaleString()}</div>`,
-      `vs ${windowLabel} avg`
+      `<div style="font-family:Orbitron,monospace;font-size:22px;font-weight:700;color:${C_GOLD}">${Math.round(s.totalFameNow).toLocaleString()}</div>`,
+      `vs ${s.windowLabel} avg`
     )}
     ${stat(
       'Score vs Avg',
-      `<div style="font-family:Orbitron,monospace;font-size:22px;font-weight:700;color:${totalVsAvgColor}">${totalVsAvgSign}${totalVsAvgPct.toFixed(1)}%</div>`,
-      `avg: ${Math.round(historicalClanTotalAvg).toLocaleString()}`
+      `<div style="font-family:Orbitron,monospace;font-size:22px;font-weight:700;color:${s.totalVsAvgColor}">${s.totalVsAvgSign}${s.totalVsAvgPct.toFixed(1)}%</div>`,
+      `avg: ${Math.round(s.historicalClanTotalAvg).toLocaleString()}`
     )}
     ${stat(
       'Avg Player Score',
-      `<div style="font-family:Orbitron,monospace;font-size:22px;font-weight:700;color:${C_GOLD}">${Math.round(currentPlayerAvg).toLocaleString()}</div>`,
-      `${countedPlayers.length} active`
+      `<div style="font-family:Orbitron,monospace;font-size:22px;font-weight:700;color:${C_GOLD}">${Math.round(s.currentPlayerAvg).toLocaleString()}</div>`,
+      `${s.countedPlayersCount} active`
     )}
     ${stat(
       'Player Avg vs Avg',
-      `<div style="font-family:Orbitron,monospace;font-size:22px;font-weight:700;color:${playerVsAvgColor}">${playerVsAvgSign}${playerVsAvgPct.toFixed(1)}%</div>`,
-      `avg: ${Math.round(historicalPlayerAvg).toLocaleString()}`
+      `<div style="font-family:Orbitron,monospace;font-size:22px;font-weight:700;color:${s.playerVsAvgColor}">${s.playerVsAvgSign}${s.playerVsAvgPct.toFixed(1)}%</div>`,
+      `avg: ${Math.round(s.historicalPlayerAvg).toLocaleString()}`
     )}
     ${stat(
       'War Grade',
-      `<div style="font-family:Orbitron,monospace;font-size:28px;font-weight:900;color:${gradeColor}">${letterGrade}</div>`,
-      rankUnknown ? `score: ${gradeScore}/100 (rank unknown)` : `score: ${gradeScore}/100`
+      `<div style="font-family:Orbitron,monospace;font-size:28px;font-weight:900;color:${s.gradeColor}">${s.letterGrade}</div>`,
+      s.rankUnknown ? `score: ${s.gradeScore}/100 (rank unknown)` : `score: ${s.gradeScore}/100`
     )}
   </div>`;
 }
