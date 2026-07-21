@@ -635,7 +635,14 @@ function buildWarSummaryTable(sortedPlayers, currentDay) {
 
 // Build the projection SVG chart + accuracy label for the bottom of Live mode.
 // Shows current fame vs projected end-of-war fame vs historical clan average.
-function buildProjectionWidget(sortedPlayers, currentDay, warComplete = false) {
+// Pure calculation for the projection widget's headline numbers: current
+// pace, projected final score, historical comparison, and accuracy. This
+// does NOT cover the per-day chart data prep or SVG geometry below in
+// buildProjectionWidget() — that's chart-drawing detail (not business
+// data) and CLAUDE.md flags the perDayFame/projMax declaration order
+// there as a past source of bugs, so it's left untouched rather than
+// threaded through this split.
+function calcProjection(sortedPlayers, currentDay, warComplete = false) {
   // Use SNAPSHOT totals as source of truth (same reasoning as buildWarSummaryBox).
   const snapshotEntries = Object.values(LIVE_SHEET_DATA);
   const snapshotParticipants = snapshotEntries.filter(s => (s.totalDecks || 0) > 0 || (s.totalFame || 0) > 0);
@@ -717,16 +724,44 @@ function buildProjectionWidget(sortedPlayers, currentDay, warComplete = false) {
   // so this stays in sync with the historicalFamePerDeck calculation.
   const historicalClanAvg = Math.round(_histAvgTotal);
 
+  const noData = (totalDecksUsed === 0 && totalFameNow === 0);
+
+  // War-complete comparison numbers (only meaningful when warComplete is true,
+  // but cheap to always compute — mirrors the original's control flow, just moved)
+  const finalColor = totalFameNow >= historicalClanAvg ? C_GREEN : C_RED;
+  const vsAvgPct   = historicalClanAvg > 0 ? ((totalFameNow - historicalClanAvg) / historicalClanAvg * 100).toFixed(1) : '0.0';
+  const vsAvgColor = totalFameNow >= historicalClanAvg ? C_GREEN : C_RED;
+
+  const projColor     = projectedFame >= historicalClanAvg ? C_GREEN : C_RED;
+  const projAccuracy  = maxTotalDecks > 0 ? (totalDecksUsed / maxTotalDecks) * 100 : 0;
+  const accuracyColor = projAccuracy >= ACCURACY_HIGH ? C_GREEN
+    : projAccuracy >= ACCURACY_MID  ? '#f5b731'
+    : C_RED;
+
+  const windowLabel = liveWindowSize === 0 ? 'All' : liveWindowSize + 'W';
+
+  return {
+    noData, totalFameNow, totalDecksUsed, maxTotalDecks, remainingDecks,
+    famePerDeck, projectedFame, historicalClanAvg, windowLabel,
+    finalColor, vsAvgPct, vsAvgColor,
+    projColor, projAccuracy, accuracyColor
+  };
+}
+
+// Render the projection widget from calcProjection()'s headline numbers.
+// Still builds its own per-day chart data (perDayFame etc.) and SVG
+// geometry directly — see the comment on calcProjection() for why.
+function buildProjectionWidget(sortedPlayers, currentDay, warComplete = false) {
+  const proj = calcProjection(sortedPlayers, currentDay, warComplete);
+
   // If no battles have been played yet, show a placeholder rather than a pure-history projection
-  if (totalDecksUsed === 0 && totalFameNow === 0) {
+  if (proj.noData) {
     return `<div style="display:flex;align-items:center;justify-content:center;height:200px;font-family:'Share Tech Mono',monospace;font-size:13px;color:${C_DIM};letter-spacing:2px;">NO BATTLE DATA YET</div>`;
   }
 
   // War complete — show final result vs historical avg, no projection bar needed
   if (warComplete) {
-    const finalColor   = totalFameNow >= historicalClanAvg ? C_GREEN : C_RED;
-    const vsAvgPct     = historicalClanAvg > 0 ? ((totalFameNow - historicalClanAvg) / historicalClanAvg * 100).toFixed(1) : '0.0';
-    const vsAvgColor   = totalFameNow >= historicalClanAvg ? C_GREEN : C_RED;
+    const { totalFameNow, historicalClanAvg, finalColor, vsAvgPct, vsAvgColor, totalDecksUsed, maxTotalDecks, famePerDeck, windowLabel } = proj;
     const projMax      = Math.max(totalFameNow, historicalClanAvg) * 1.25 || 1;
     const chartW2      = PROJ_SVG_W - PROJ_PAD.left - PROJ_PAD.right;
     const chartH2      = PROJ_SVG_H - PROJ_PAD.top  - PROJ_PAD.bottom;
@@ -748,11 +783,10 @@ function buildProjectionWidget(sortedPlayers, currentDay, warComplete = false) {
       + `<text x="${b1x2}" y="${(b1y2 - 6).toFixed(1)}" text-anchor="middle" fill="${finalColor}" font-size="12" font-weight="700" font-family="monospace">${totalFameNow.toLocaleString()}</text>`
       + `<text x="${b1x2}" y="${baseY2 + 14}" text-anchor="middle" fill="${C_DIM}" font-size="9" font-family="monospace" letter-spacing="1">FINAL</text>`
       + `</svg>`;
-    const windowLabel2 = liveWindowSize === 0 ? 'All' : liveWindowSize + 'W';
     return `<div class="projection-wrap">`
       + `<div class="projection-title">WAR RESULT`
       + `<div class="proj-legend"><div class="proj-legend-dot" style="background:${finalColor}"></div>Final Score</div>`
-      + `<div class="proj-legend"><div class="proj-legend-dot" style="background:rgba(180,180,180,0.5)"></div>Hist. Avg (${windowLabel2})</div>`
+      + `<div class="proj-legend"><div class="proj-legend-dot" style="background:rgba(180,180,180,0.5)"></div>Hist. Avg (${windowLabel})</div>`
       + `</div>`
       + svgFinal
       + `<div style="margin-top:12px;font-family:Share Tech Mono,monospace;font-size:10px;color:var(--text-dim)">`
@@ -762,11 +796,7 @@ function buildProjectionWidget(sortedPlayers, currentDay, warComplete = false) {
       + `</div>`;
   }
 
-  const projColor     = projectedFame >= historicalClanAvg ? C_GREEN : C_RED;
-  const projAccuracy  = maxTotalDecks > 0 ? (totalDecksUsed / maxTotalDecks) * 100 : 0;
-  const accuracyColor = projAccuracy >= ACCURACY_HIGH ? C_GREEN
-    : projAccuracy >= ACCURACY_MID  ? '#f5b731'
-    : C_RED;
+  const { totalFameNow, totalDecksUsed, maxTotalDecks, remainingDecks, famePerDeck, projectedFame, historicalClanAvg, windowLabel, projColor, projAccuracy, accuracyColor } = proj;
 
   // SVG projection bar chart
   const chartW = PROJ_SVG_W - PROJ_PAD.left - PROJ_PAD.right;
@@ -882,7 +912,6 @@ function buildProjectionWidget(sortedPlayers, currentDay, warComplete = false) {
     + svgBars
     + `</svg>`;
 
-  const windowLabel = liveWindowSize === 0 ? 'All' : liveWindowSize + 'W';
   return `<div class="projection-wrap">`
     + `<div class="projection-title">WAR PROJECTION`
     + `<div class="proj-legend"><div class="proj-legend-dot" style="background:rgba(100,160,240,0.7)"></div>Daily Fame</div>`
