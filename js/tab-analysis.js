@@ -9,7 +9,11 @@
 //  builds the HTML cards from those numbers.
 // ══════════════════════════════════════════════════════════════════
 
-function renderAnalysis() {
+// Pure calculation for the Analysis tab: clan-wide baselines, plus every
+// non-swapper and swapper player's analytics, value-score ranking, and
+// promotion/demotion signal. Zero HTML — renderAnalysis() below builds
+// the scorecards from this.
+function calcAnalysisData() {
   const clanFameAvg  = clanAvgFamePerPlayer();
   const clanDecksAvg = clanAvgDecksPerPlayer();
   const fameBattleAvg = clanDecksAvg > 0 ? clanFameAvg / clanDecksAvg : 0;
@@ -43,6 +47,12 @@ function renderAnalysis() {
   const swapperWithAnalytics = allSwappers
     .map(p => ({ p, analytics: calcPlayerAnalytics(p), inClan: !!LIVE_ROLES[p.name.toLowerCase().trim()] }))
     .sort((a, b) => (b.inClan ? 1 : 0) - (a.inClan ? 1 : 0));
+
+  return { clanFameAvg, clanDecksAvg, fameBattleAvg, mainWithAnalytics, swapperWithAnalytics };
+}
+
+function renderAnalysis() {
+  const { clanFameAvg, clanDecksAvg, fameBattleAvg, mainWithAnalytics, swapperWithAnalytics } = calcAnalysisData();
 
   function signalHtml(signal, analytics, p) {
     if (analytics.qualifyingWars === 0 || analytics.recentlyJoined) {
