@@ -174,11 +174,14 @@ function drawChart(containerId, warLabels, dataPoints, height=200, avgOverride=n
 // ══════════════════════════════════════════════════════
 //  RENDER — GRAPHIC MODE
 // ══════════════════════════════════════════════════════
-function renderGraphic() {
+
+// Pure calculation for the Graphic tab's two clan-wide charts and player
+// list — war labels/stats, clan totals, sorted active/inactive rosters,
+// and the all-time clan avg used as a chart reference line. Zero HTML.
+function calcGraphicData() {
   // Graphic shows completed wars only, plus optionally a single Live bar
   // (collapsing all _LIVE snapshot columns into one using current LIVE_DATA from CR API)
   const completedWars = WARS.filter(w => !w.isLive);
-  const graphicWars = [...completedWars];
   const graphicLabels = completedWars.map(w => w.label || ('War '+w.id));
   const graphicStats = completedWars.map((w) => {
     const vals = PLAYERS
@@ -244,21 +247,51 @@ function renderGraphic() {
   const sortedActive   = [...activePlayers].sort(sortFn);
   const sortedInactive = [...inactivePlayers].sort(sortFn);
 
+  // Clan avg per player (all-time, participants only) — used as reference line
+  // when graphicMetric === 'clan' on individual player charts.
+  const completedNonLive = WARS.filter(w => !w.isLive);
+  const clanAvgPerPlayer = (() => {
+    const avgs = completedNonLive.map(w => {
+      const idx = WARS.indexOf(w);
+      const vals = PLAYERS.map(p => p.scores[idx]).filter(s => s !== null && s > 0);
+      return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
+    }).filter(v => v !== null);
+    return avgs.length ? avgs.reduce((a,b)=>a+b,0)/avgs.length : 0;
+  })();
+
+  return {
+    completedWars, warLabels, clanStats, totalLabels, clanTotalStats,
+    sortedActive, sortedInactive, clanAvgPerPlayer
+  };
+}
+
+// Pure per-player calculation for one row in the Graphic tab's player list.
+function calcPlayerChartRow(p) {
+  // Use only wars where player was in clan (non-null), matching chart avg line
+  const clanWars = p.scores.filter(s => s !== null);
+  const avg = clanWars.length ? Math.round(clanWars.reduce((a,b)=>a+b,0)/clanWars.length) : 0;
+  return {
+    avg, avgClass: avgClass(avg), tag: playerTag(p), posClass: posClass(p.pos),
+    isOpen: expandedCharts.has(p.name),
+    chartId: 'pchart_' + p.name.replace(/[^a-z0-9]/gi, '_')
+  };
+}
+
+function renderGraphic() {
+  const g = calcGraphicData();
+  const { warLabels, clanStats, totalLabels, clanTotalStats, sortedActive, sortedInactive, clanAvgPerPlayer, completedWars } = g;
+
   const buildPlayerRows = (players, dimmed) => players.map(p => {
-    // Use only wars where player was in clan (non-null), matching chart avg line
-    const clanWars = p.scores.filter(s => s !== null);
-    const avg = clanWars.length ? Math.round(clanWars.reduce((a,b)=>a+b,0)/clanWars.length) : 0;
-    const isOpen = expandedCharts.has(p.name);
-    const chartId = 'pchart_' + p.name.replace(/[^a-z0-9]/gi, '_');
-    return `<div class="player-chart-section${isOpen ? ' open' : ''}" style="${dimmed ? 'opacity:0.4' : ''}">
-      <div class="player-chart-row" data-name="${encodeURIComponent(p.name)}" data-chart="${chartId}" onclick="togglePlayerChart(decodeURIComponent(this.dataset.name), this.dataset.chart)">
-        <span class="player-chart-name">${p.name}${playerTagHtml(playerTag(p), 'dot')}</span>
-        <span class="pos-badge ${posClass(p.pos)}">${p.pos}</span>
-        <span class="player-chart-avg ${avgClass(avg)}">${avg > 0 ? avg.toLocaleString() : '—'}</span>
-        <span class="player-chart-expand">${isOpen ? '▲ collapse' : '▼ expand'}</span>
+    const r = calcPlayerChartRow(p);
+    return `<div class="player-chart-section${r.isOpen ? ' open' : ''}" style="${dimmed ? 'opacity:0.4' : ''}">
+      <div class="player-chart-row" data-name="${encodeURIComponent(p.name)}" data-chart="${r.chartId}" onclick="togglePlayerChart(decodeURIComponent(this.dataset.name), this.dataset.chart)">
+        <span class="player-chart-name">${p.name}${playerTagHtml(r.tag, 'dot')}</span>
+        <span class="pos-badge ${r.posClass}">${p.pos}</span>
+        <span class="player-chart-avg ${r.avgClass}">${r.avg > 0 ? r.avg.toLocaleString() : '—'}</span>
+        <span class="player-chart-expand">${r.isOpen ? '▲ collapse' : '▼ expand'}</span>
       </div>
-      <div class="player-chart-body ${isOpen ? 'open' : ''}" id="${chartId}">
-        <div id="${chartId}_svg" style="width:100%"></div>
+      <div class="player-chart-body ${r.isOpen ? 'open' : ''}" id="${r.chartId}">
+        <div id="${r.chartId}_svg" style="width:100%"></div>
       </div>
     </div>`;
   }).join('');
@@ -301,18 +334,6 @@ function renderGraphic() {
   `;
 
   // Draw clan chart and any expanded player charts
-  // Clan avg per player (all-time, participants only) — used as reference line
-  // when graphicMetric === 'clan' on individual player charts.
-  const completedNonLive = WARS.filter(w => !w.isLive);
-  const clanAvgPerPlayer = (() => {
-    const avgs = completedNonLive.map(w => {
-      const idx = WARS.indexOf(w);
-      const vals = PLAYERS.map(p => p.scores[idx]).filter(s => s !== null && s > 0);
-      return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
-    }).filter(v => v !== null);
-    return avgs.length ? avgs.reduce((a,b)=>a+b,0)/avgs.length : 0;
-  })();
-
   requestAnimationFrame(() => {
     // Clan charts always use avg (max toggling is relegated)
     drawChart('clan-chart-svg', warLabels, clanStats, 220);
