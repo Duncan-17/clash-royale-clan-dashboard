@@ -118,9 +118,20 @@ function getLastWarScore(player) {
   return null;
 }
 
-// A player is "inactive" if they don't appear in any recent war data.
-// During an active war, presence in LIVE_PARTICIPANTS overrides everything.
-// Otherwise: null in the most recent war column = not in the clan = inactive.
+// A player is "inactive" if they're not currently a clan member.
+// During an active war, presence in LIVE_PARTICIPANTS overrides everything
+// (covers someone mid-war before the roster API has caught up). Otherwise,
+// current roster membership (LIVE_ROLES) is the authoritative signal.
+//
+// This used to check "null in the most recent war's score column" instead
+// of roster membership -- but a war's WAR_PLAYERS row can carry a real,
+// non-null score (even 0) for someone who is no longer in the clan, since
+// that row is finalized from Supercell's own per-war participants list,
+// which doesn't always match current membership by the time the war
+// finalizes. A null-only check left such players showing as "Active" (and
+// counted in the Data tab's Active total / shown on the Live tab's roster)
+// until an entire ADDITIONAL war passed with no score for them -- a full
+// war's worth of lag, not immediate. Roster membership has no such lag.
 function isInactive(player) {
   const key = player.name.toLowerCase().trim();
 
@@ -132,8 +143,15 @@ function isInactive(player) {
     if (LIVE_PARTICIPANTS.has(key)) return false;
   }
 
+  // Only trust LIVE_ROLES once it's actually populated (API worked and
+  // returned members) -- same guard used everywhere else in this file.
+  if (Object.keys(LIVE_ROLES).length > 10) {
+    return !LIVE_ROLES[key];
+  }
+
+  // API-unavailable fallback: null in the last score slot = player wasn't
+  // in the clan for the most recent war we have data for.
   if (!player.scores.length) return true;
-  // null in the last score slot = player wasn't in the clan for the most recent war
   return player.scores[player.scores.length - 1] === null;
 }
 
@@ -156,7 +174,8 @@ function avgClass(avg) {
 //           over NEW/REMOVED, matching the swapper bypass used elsewhere
 //           in the app, e.g. isInactive() and isCurrentlyInClan()).
 // NEW    = currently in LIVE_ROLES but has ≤ 1 qualifying war (just joined)
-// REMOVED = NOT in LIVE_ROLES but was in the current live war (left/kicked mid-war)
+// REMOVED = NOT in LIVE_ROLES but was part of the most recent war we have
+//           real data for (left/kicked mid-war OR since the last war ended)
 function playerTag(p) {
   const key = p.name.toLowerCase().trim();
 
@@ -169,19 +188,74 @@ function playerTag(p) {
   const inRoster = !!LIVE_ROLES[key] || SWAPPER_NAMES.has(key);
 
   if (rosterLoaded && !inRoster) {
-    // REMOVED: not in current roster AND was an active participant in this war.
-    // Using LIVE_PARTICIPANTS only (reliable — comes directly from the live war API).
-    // NOT using sheet fallback to avoid false positives on training day.
+    // REMOVED: not in current roster AND was part of the most recent war we
+    // have real data for. LIVE_PARTICIPANTS (the currently active war's real
+    // API roster) covers the "kicked mid-war" case; when there's no active
+    // war -- training day / the gap between wars, which is most of the time,
+    // not an edge case -- LIVE_PARTICIPANTS instead reflects the NEXT war's
+    // not-yet-fought roster, so it can never confirm someone was in the LAST
+    // war. Falling back to the last FINALIZED war's own score covers that
+    // gap: a non-null score there means they were genuinely part of it.
     if (LIVE_PARTICIPANTS.has(key)) return 'removed';
+    let lastFinalizedIdx = -1;
+    for (let i = WARS.length - 1; i >= 0; i--) {
+      if (!WARS[i].isLive) { lastFinalizedIdx = i; break; }
+    }
+    if (lastFinalizedIdx !== -1 && p.scores[lastFinalizedIdx] !== null) return 'removed';
     return null;
   }
 
   if (inRoster) {
-    // NEW: in roster but has ≤ 1 finalized war in history (just joined)
+    // NEW: in roster but their CURRENT stint is ≤ 1 war old. Counts
+    // consecutive non-null scores backward from the most recent war,
+    // stopping at the first genuine gap -- NOT a lifetime total. Players
+    // are keyed by tag (stable across rejoins), so someone who was in the
+    // clan long ago, left, and rejoined recently still has their old
+    // stint's scores sitting earlier in the same array; a lifetime count
+    // would see those old wars and never flag the rejoin as new.
+    //
+    // The live/in-progress war column (if present) is skipped rather than
+    // treated as a stopping point when null: appendLiveColumn() (parse.js)
+    // deliberately leaves it null for anyone who simply hasn't battled YET
+    // this week (as opposed to a real gap meaning "wasn't in the clan"),
+    // so a long-tenured member who hasn't started this week's battles must
+    // not have their tenure count reset to 0 by it.
+    let currentTenure = 0;
+    for (let i = p.scores.length - 1; i >= 0; i--) {
+      if (p.scores[i] === null) {
+        if (WARS[i] && WARS[i].isLive) continue;
+        break;
+      }
+      currentTenure++;
+    }
+    if (currentTenure <= 1) return 'new';
+  }
+
+  return null;
+}
+
+// Same tag logic as playerTag(), but for the Live tab's training-day "review
+// the last completed war" screen (isSheetReview). playerTag()'s REMOVED
+// check only trusts LIVE_PARTICIPANTS -- the CURRENT live war's real API
+// roster -- specifically to avoid false positives; but during training day
+// that set reflects the NEXT war's registrants, not the war actually being
+// reviewed, so checking against it here silently drops the OUT tag for
+// anyone kicked since the reviewed war ended. Check LIVE_SHEET_DATA (that
+// reviewed war's own snapshot roster) instead -- presence there means they
+// were genuinely part of the war being shown, regardless of what's changed
+// since.
+function playerTagForWarReview(p) {
+  const key = p.name.toLowerCase().trim();
+  if (SWAPPER_NAMES.has(key)) return 'swapper';
+  const rosterLoaded = Object.keys(LIVE_ROLES).length > 10;
+  const inRoster = !!LIVE_ROLES[key] || SWAPPER_NAMES.has(key);
+  if (rosterLoaded && !inRoster) {
+    return LIVE_SHEET_DATA[key] ? 'removed' : null;
+  }
+  if (inRoster) {
     const warsInHistory = p.scores.filter(s => s !== null).length;
     if (warsInHistory <= 1) return 'new';
   }
-
   return null;
 }
 
@@ -296,6 +370,15 @@ function filterPlayers() {
   return { active, inactive };
 }
 
+// True iff a war's WARS-sheet WAR_TYPE marks it as a Colosseum week. That
+// column is free text from the Apps Script backend / manual entry (parsed
+// as-is in parseWarsSheet, defaulting to 'normal' when blank) -- matched
+// case-insensitively by substring rather than an exact string so it isn't
+// brittle against however it happens to be capitalized/phrased in the sheet.
+function isColosseumWar(warType) {
+  return typeof warType === 'string' && warType.toLowerCase().includes('colosseum');
+}
+
 // Adjust a war's rank for tie-for-1st: on a normal week, clan fame caps at
 // NORMAL_WAR_FAME_CAP (the finish line). If we're AT the cap and so is
 // whoever Supercell's riverracelog ranked #1, every number we can see says
@@ -303,10 +386,14 @@ function filterPlayers() {
 // criterion (likely time-to-cap) that isn't exposed to us. Treat it as 1st.
 // Single source of truth so every rank display (Data tab war headers, Live
 // tab summary box, anywhere else) agrees with each other.
-function getAdjustedRank(standing, allStandingsForWar) {
+// Colosseum weeks don't use that same 10k finish line (their CLAN_FAME
+// column is true fame, uncapped, per parseStandingsSheet's note), so this
+// tie-check must be skipped there -- pass the war's warType whenever it's
+// known (finalized wars, sourced from the sheet) so it can be.
+function getAdjustedRank(standing, allStandingsForWar, warType = null) {
   if (!standing) return null;
   let rank = standing.rank;
-  if (rank && rank > 1 && allStandingsForWar && allStandingsForWar.length) {
+  if (rank && rank > 1 && allStandingsForWar && allStandingsForWar.length && !isColosseumWar(warType)) {
     const rank1Entry = allStandingsForWar.find(e => e.rank === 1);
     if (rank1Entry && rank1Entry.fame === standing.fame && standing.fame >= NORMAL_WAR_FAME_CAP) {
       rank = 1;
@@ -444,6 +531,51 @@ function calcValueScore(an, clanFameAvg, clanDecksAvg) {
        + an.participationRate * 0.20
        + decksNorm * 0.20
        + tenureNorm * 0.20;
+}
+
+// ── Alternate Analysis-tab scoring lenses ──────────────────────────────────
+// calcValueScore() above ("Complex") stays untouched and remains the single
+// source of truth for the Data tab's Active Members sort/on-card bar --
+// these two are additional lenses selected via the Analysis tab's own
+// analysisScoreMode toggle (see calcAnalysisScore() dispatcher below), not
+// substitutes for it.
+
+// "Basic": battle-completion % and participation are the primary signal --
+// tenure (qualifying wars) is weighted in on top so a track record backed
+// by more wars counts for more than the same rate over just a couple, since
+// a completion/participation % is more trustworthy the larger the sample
+// it's drawn from.
+function calcBasicScore(an) {
+  if (!an.qualifyingWars) return -1;
+  const battleCompletionNorm = Math.min(an.avgDecksPerWar / 16, 1.0);
+  const tenureNorm = Math.min(an.qualifyingWars / COLEADER_MIN_WARS, 1.0);
+  return battleCompletionNorm * 0.40
+       + an.participationRate * 0.40
+       + tenureNorm * 0.20;
+}
+
+// "Competitive Basic": same tenure-weighting idea as Basic, but the primary
+// signal is fame per war and consistency instead of completion/
+// participation. consistency (calcPlayerAnalytics) is already computed only
+// from wars the player actually participated in, so weeks they legitimately
+// missed never drag it down -- only genuine week-to-week swings in output
+// while they were playing do.
+function calcCompetitiveScore(an, clanFameAvg) {
+  if (!an.qualifyingWars) return -1;
+  const fameWarNorm = clanFameAvg > 0 ? Math.min(an.avgFamePerWar / clanFameAvg, 1.5) : 0;
+  const tenureNorm  = Math.min(an.qualifyingWars / COLEADER_MIN_WARS, 1.0);
+  return fameWarNorm * 0.40
+       + an.consistency * 0.40
+       + tenureNorm * 0.20;
+}
+
+// Single dispatch point the Analysis tab uses instead of calling one of the
+// three score functions directly -- keeps tab-analysis.js from needing to
+// know which raw function backs which mode.
+function calcAnalysisScore(mode, an, clanFameAvg, clanDecksAvg) {
+  if (mode === 'basic')       return calcBasicScore(an);
+  if (mode === 'competitive') return calcCompetitiveScore(an, clanFameAvg);
+  return calcValueScore(an, clanFameAvg, clanDecksAvg);
 }
 
 // Given a player's 0-indexed position in the value-score-sorted ranking

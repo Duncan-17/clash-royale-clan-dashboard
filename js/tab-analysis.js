@@ -16,7 +16,6 @@
 function calcAnalysisData() {
   const clanFameAvg  = clanAvgFamePerPlayer();
   const clanDecksAvg = clanAvgDecksPerPlayer();
-  const fameBattleAvg = clanDecksAvg > 0 ? clanFameAvg / clanDecksAvg : 0;
 
   // Main active = in LIVE_ROLES AND not a swapper
   // Main inactive = not in LIVE_ROLES AND not a swapper
@@ -32,7 +31,7 @@ function calcAnalysisData() {
   // display order AND the rank-based promotion/demotion signal below.
   const mainWithAnalytics = mainPlayers
     .map(p => ({ p, analytics: calcPlayerAnalytics(p) }))
-    .sort((a, b) => calcValueScore(b.analytics, clanFameAvg, clanDecksAvg) - calcValueScore(a.analytics, clanFameAvg, clanDecksAvg));
+    .sort((a, b) => calcAnalysisScore(analysisScoreMode, b.analytics, clanFameAvg, clanDecksAvg) - calcAnalysisScore(analysisScoreMode, a.analytics, clanFameAvg, clanDecksAvg));
 
   // Rank position for the tier-based signal: only players with enough war
   // data to be meaningfully ranked (qualifyingWars > 0, not recentlyJoined)
@@ -48,11 +47,15 @@ function calcAnalysisData() {
     .map(p => ({ p, analytics: calcPlayerAnalytics(p), inClan: !!LIVE_ROLES[p.name.toLowerCase().trim()] }))
     .sort((a, b) => (b.inClan ? 1 : 0) - (a.inClan ? 1 : 0));
 
-  return { clanFameAvg, clanDecksAvg, fameBattleAvg, mainWithAnalytics, swapperWithAnalytics };
+  return { clanFameAvg, clanDecksAvg, mainWithAnalytics, swapperWithAnalytics };
 }
 
 function renderAnalysis() {
-  const { clanFameAvg, clanDecksAvg, fameBattleAvg, mainWithAnalytics, swapperWithAnalytics } = calcAnalysisData();
+  // See renderData()'s note -- the mobile controls are real elements
+  // hosted inside #main, so they must be parked before it's replaced.
+  parkTabControls();
+
+  const { clanFameAvg, clanDecksAvg, mainWithAnalytics, swapperWithAnalytics } = calcAnalysisData();
 
   function signalHtml(signal, analytics, p) {
     if (analytics.qualifyingWars === 0 || analytics.recentlyJoined) {
@@ -86,9 +89,15 @@ function renderAnalysis() {
       </div>`;
     }
 
-    const v = calcValueScore(analytics, clanFameAvg, clanDecksAvg);
-    const pct = Math.min(v / 1.5 * 100, 100);
-    const color = v >= 1.1 ? 'var(--green)' : v >= 0.85 ? 'var(--gold)' : v >= 0.6 ? 'var(--orange)' : 'var(--red)';
+    const v = calcAnalysisScore(analysisScoreMode, analytics, clanFameAvg, clanDecksAvg);
+    // Basic's formula caps out at 1.0 (two 1.0-capped norms + tenure) rather
+    // than Complex/Competitive's ~1.5-scaled fame norm pushing their max to
+    // ~1.2 -- scaled thresholds keep the bar's color bands meaningful for
+    // Basic instead of green/gold sitting almost out of reach.
+    const scoreMax = analysisScoreMode === 'basic' ? 1.0 : 1.5;
+    const pct = Math.min(v / scoreMax * 100, 100);
+    const [gT, yT, oT] = analysisScoreMode === 'basic' ? [0.73, 0.57, 0.4] : [1.1, 0.85, 0.6];
+    const color = v >= gT ? 'var(--green)' : v >= yT ? 'var(--gold)' : v >= oT ? 'var(--orange)' : 'var(--red)';
     return `<div class="an-value-bar-wrap">
       <div class="an-value-bar-bg"><div class="an-value-bar-fill" style="width:${pct.toFixed(1)}%;background:${color}"></div></div>
       <div class="an-value-lbl" style="color:${color}">${(v*100).toFixed(0)}</div>
@@ -175,6 +184,12 @@ function renderAnalysis() {
       : '';
     const warsNote = analytics.qualifyingWars > 0
       ? `<div class="an-wars-lbl">${analytics.totalWarsSinceJoining} wars as member</div>` : '';
+    // data-name (+ the delegated click listener in main.js), not an inline
+    // onclick with the raw name -- real in-game names can contain quotes/
+    // parentheses/unicode that would break an inline onclick string. Same
+    // pattern as the Live tab's card highlighting (attachLiveCardHighlight(),
+    // tab-live.js).
+    const battleInfoBtn = `<button class="btn-battle-info" data-name="${encodeURIComponent(p.name)}">Battle Info</button>`;
     return `<div class="an-card ${vetClass}">
       <div class="an-card-top">
         ${isSwap ? '' : `<div class="an-rank">${rank}</div>`}
@@ -185,22 +200,17 @@ function renderAnalysis() {
       ${valueBarHtml(analytics, isSwap)}
       ${statsHtml(analytics, isSwap)}
       ${warsNote}
+      ${battleInfoBtn}
     </div>`;
   }
 
   const sectionHdr = (label, color, count) =>
     `<div class="analysis-section-hdr" style="background:${color}">${label} <span style="font-family:'Share Tech Mono',monospace;font-size:10px;opacity:0.7;font-weight:400">${count} members</span></div>`;
 
-  let html = '';
-
-  // Clan avg reference bar
-  html += `<div style="display:flex;gap:16px;align-items:center;padding:10px 4px 16px;flex-wrap:wrap">
-    <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:rgba(255,255,255,0.55);letter-spacing:1px;text-transform:uppercase">Clan baselines (all-time, participants only):</span>
-    <span style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:var(--gold)">Avg fame/war: ${Math.round(clanFameAvg).toLocaleString()}</span>
-    <span style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:var(--gold)">Avg decks/war: ${clanDecksAvg.toFixed(1)}</span>
-    <span style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:var(--gold)">Fame/battle: ${Math.round(fameBattleAvg)}</span>
-    <span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:rgba(255,255,255,0.4)">Value bar: 100=clan avg · green=above · red=below</span>
-  </div>`;
+  // Mobile-only controls banner (Active/Inactive + the 3-way score mode
+  // toggle) -- blue to match this tab's own mode button, so it stays
+  // distinct from the purple "Active Members" section header below it.
+  let html = tabControlBannerHtml('analysis');
 
   const searchLower = searchStr.toLowerCase();
   const filteredMain = searchStr
@@ -239,11 +249,20 @@ function renderAnalysis() {
   }
 
   document.getElementById('main').innerHTML = html;
+  mountTabControls(); // main.js -- fills the banner above on mobile
 }
 
 function setAnalysisFilter(f) {
   analysisFilter = f;
   document.getElementById('an-active-btn').classList.toggle('active', f === 'active');
   document.getElementById('an-inactive-btn').classList.toggle('active', f === 'inactive');
+  render();
+}
+
+function setAnalysisScoreMode(m) {
+  analysisScoreMode = m;
+  document.getElementById('an-score-complex').classList.toggle('active', m === 'complex');
+  document.getElementById('an-score-basic').classList.toggle('active', m === 'basic');
+  document.getElementById('an-score-competitive').classList.toggle('active', m === 'competitive');
   render();
 }

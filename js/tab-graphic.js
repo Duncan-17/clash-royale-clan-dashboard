@@ -38,29 +38,172 @@ function rollingAvg(vals, n) {
   });
 }
 
+// Rank 1-5 → outline color, shared by the Opponents overlay's full bars AND
+// our own bar's placement coloring on Colosseum weeks. Positional (matches
+// whichever clan held that rank that week), not tied to a clan's identity.
+// Fill comes from the metallic gradients built per-chart in drawChart()
+// (see rankFill()); this only carries each rank's outline stroke. No rank
+// gets a halo/extra border -- all five bars must be the exact same size.
+const RANK_COLOR = {
+  1: { stroke: 'rgba(120,90,10,0.55)' },
+  2: { stroke: 'rgba(70,80,95,0.55)' },
+  3: { stroke: 'rgba(100,50,15,0.55)' },
+  4: { stroke: 'rgba(60,35,15,0.55)' },
+  5: { stroke: 'rgba(60,25,15,0.55)' } // rusty red/maroon, not black
+};
+
+// Rank 1-5 → flat text color for a Colosseum week's x-axis label (see
+// drawChart()'s xLabels). Brighter/more saturated than the bar gradients'
+// own tones so a small label stays legible against the dark chart panel
+// instead of blending toward plain white.
+const RANK_LABEL_COLOR = {
+  1: '#ffd84d',
+  2: '#b9c2cf',
+  3: '#e0894a',
+  4: '#b98554',
+  5: '#e0755a'
+};
+
+// Wraps one bar's rect(s) in an interactive <g> carrying the data
+// attachChartBarTooltips() needs to rise/label it on hover or tap — every
+// bar in a chart (our own, a missed-war stub, or a layered opponent rank
+// bar) goes through this so the interaction covers all of them uniformly.
+function wrapChartBar(innerSvg, { cx, topY, val, context }) {
+  return `<g class="chart-bar" data-cx="${cx.toFixed(1)}" data-top="${topY.toFixed(1)}" data-val="${val}" data-context="${context || ''}">${innerSvg}</g>`;
+}
+
+// Currently pinned (tap-locked) bar per chart container, keyed by
+// containerId so the clan-total chart, the clan-avg chart, and each
+// expanded player chart don't share pin state. Implicitly cleared whenever
+// that container's SVG is rebuilt (drawChart() replaces el.innerHTML),
+// since the pinned <g> reference just becomes a harmless detached orphan.
+const CHART_PINNED_BAR = {};
+
+// Wires up the "hover or tap a bar to see its exact value" interaction for
+// one just-rendered chart. Hovering (desktop) previews a bar transiently;
+// clicking/tapping pins it (since touch devices have no hover) until it's
+// tapped again, another bar is tapped, or empty chart space is tapped.
+// Rise is a real height/y change (not a CSS transform) so it composes
+// cleanly with every existing bar variant — gradients, sheens, stubs.
+function attachChartBarTooltips(el, containerId) {
+  const svg = el.querySelector('svg');
+  if (!svg) return;
+  CHART_PINNED_BAR[containerId] = null;
+
+  const bars = [...svg.querySelectorAll('.chart-bar')];
+  const RISE = 8;
+
+  // Each bar gets its OWN tooltip text rather than one shared node — a
+  // shared tooltip meant showing a hovered bar's value silently stole it
+  // away from a still-pinned bar underneath (both mid-hover on desktop and
+  // mid-tap on mobile, where a tap synthesizes mouseenter+click back to
+  // back and the two calls raced on the same shared node). Appended after
+  // every bar already exists, so every tooltip still paints on top of
+  // every bar regardless of that bar's layering.
+  bars.forEach(g => {
+    const tooltip = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    tooltip.setAttribute('class', 'chart-bar-tooltip');
+    tooltip.setAttribute('text-anchor', 'middle');
+    tooltip.setAttribute('font-family', "'Nunito',sans-serif");
+    tooltip.setAttribute('font-size', '13');
+    tooltip.setAttribute('font-weight', '800');
+    tooltip.setAttribute('fill', '#ffffff');
+    const val = Number(g.dataset.val);
+    const context = g.dataset.context;
+    tooltip.textContent = context ? `${context}: ${val.toLocaleString()}` : val.toLocaleString();
+    tooltip.setAttribute('x', g.dataset.cx);
+    tooltip.setAttribute('y', (parseFloat(g.dataset.top) - RISE - 8).toFixed(1));
+    tooltip.style.opacity = '0';
+    svg.appendChild(tooltip);
+    g._tooltip = tooltip;
+  });
+
+  // Rise/highlight is idempotent (guarded so re-entering doesn't double-
+  // rise), but the tooltip's visibility is always reasserted regardless —
+  // it must never depend on whether the rise step ran, so a pin (click)
+  // arriving right after a hover already showed the same bar still turns
+  // the tooltip on rather than being skipped as a no-op.
+  const showBar = (g) => {
+    if (!g.classList.contains('chart-bar-active')) {
+      g.classList.add('chart-bar-active');
+      const rect = g.querySelector('.chart-bar-rect');
+      if (rect) {
+        rect.dataset.origY = rect.getAttribute('y');
+        rect.dataset.origH = rect.getAttribute('height');
+        rect.setAttribute('y', (parseFloat(rect.dataset.origY) - RISE).toFixed(1));
+        rect.setAttribute('height', (parseFloat(rect.dataset.origH) + RISE).toFixed(1));
+      }
+      const sheen = g.querySelector('.chart-bar-sheen');
+      if (sheen) sheen.style.opacity = '0';
+    }
+    g._tooltip.style.opacity = '1';
+  };
+  const hideBar = (g) => {
+    if (g.classList.contains('chart-bar-active')) {
+      g.classList.remove('chart-bar-active');
+      const rect = g.querySelector('.chart-bar-rect');
+      if (rect && rect.dataset.origY !== undefined) {
+        rect.setAttribute('y', rect.dataset.origY);
+        rect.setAttribute('height', rect.dataset.origH);
+      }
+      const sheen = g.querySelector('.chart-bar-sheen');
+      if (sheen) sheen.style.opacity = '';
+    }
+    g._tooltip.style.opacity = '0';
+  };
+
+  bars.forEach(g => {
+    g.addEventListener('mouseenter', () => showBar(g));
+    g.addEventListener('mouseleave', () => {
+      if (CHART_PINNED_BAR[containerId] !== g) hideBar(g);
+    });
+    g.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const pinned = CHART_PINNED_BAR[containerId];
+      if (pinned === g) {
+        CHART_PINNED_BAR[containerId] = null;
+        hideBar(g);
+      } else {
+        if (pinned) hideBar(pinned);
+        CHART_PINNED_BAR[containerId] = g;
+        showBar(g);
+      }
+    });
+  });
+
+  // Tapping empty chart space releases whatever's pinned — the only way to
+  // dismiss a pinned tooltip on a touch device, which has no hover fallback.
+  svg.addEventListener('click', () => {
+    const pinned = CHART_PINNED_BAR[containerId];
+    if (pinned) { hideBar(pinned); CHART_PINNED_BAR[containerId] = null; }
+  });
+}
+
 // Render an SVG bar chart into the given container element.
 // Bars are green (above all-time avg), red (below), or metallic gold (personal best).
 // Y-axis always starts at 0 for honest proportional comparison.
-function drawChart(containerId, warLabels, dataPoints, height=200, avgOverride=null) {
+function drawChart(containerId, warLabels, dataPoints, height=200, avgOverride=null, opponentSeries=null, warTypes=null, ourRankSeries=null) {
   const el = document.getElementById(containerId);
   if (!el) return;
 
-  const W = el.clientWidth || 800;
+  const containerW = el.clientWidth || 800;
   const H = height;
   const PAD = { top: 20, right: 85, bottom: 30, left: 50 };
-  const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
 
-  // Royal theme → match the app: rounded font, bigger WHITE numbers, blue avg line
-  const isRoyal   = document.body.classList.contains('theme-light');
-  const chartFont = isRoyal ? "'Nunito',sans-serif" : 'monospace';
-  const lblColor  = isRoyal ? '#ffffff' : C_DIM;
-  const lblSize   = isRoyal ? 12 : 9;
-  const gridCol   = isRoyal ? 'rgba(255,255,255,0.16)' : '#1a2030';
+  // Royal theme styling — rounded font, bigger WHITE numbers, blue avg line.
+  // Dark mode retired (only Royal theme exists — see CLAUDE.md), so these
+  // are no longer conditional on the theme; the old dark-mode values are
+  // gone, not just unreachable.
+  const chartFont = "'Nunito',sans-serif";
+  const lblColor  = '#ffffff';
+  const lblSize   = 12;
+  const gridCol   = 'rgba(255,255,255,0.16)';
 
   const valid = dataPoints.filter(v => v !== null && v > 0);
   if (!valid.length) {
     el.innerHTML = '<p style="color:var(--text-dim);font-size:12px;text-align:center;padding:40px">No data</p>';
+    el.style.overflowX = '';
     return;
   }
 
@@ -74,9 +217,30 @@ function drawChart(containerId, warLabels, dataPoints, height=200, avgOverride=n
   const maxVal = Math.max(...valid, allTimeAvg) * 1.1;
   const range  = maxVal - minVal || 1;
 
-  const n    = dataPoints.length;
-  const gap  = 3;
-  const barW = Math.max(4, (chartW - gap * (n - 1)) / n);
+  const n   = dataPoints.length;
+  const gap = 3;
+  // Bars always render at a comfortable minimum width (MIN_BAR_W), rather
+  // than shrinking indefinitely to cram every war into whatever width a
+  // narrow/portrait phone has — real-device feedback called the shrunk-
+  // to-fit bars "too thin, looks terrible". If MIN_BAR_W doesn't fit
+  // everything in the visible container, the chart's own SVG grows wider
+  // than the container instead, and the container becomes horizontally
+  // scrollable (same pattern as the Data tab's table) — no war is ever
+  // hidden, bars are never squished thinner than MIN_BAR_W. On wide
+  // (desktop) containers this never triggers: natural fill-to-width bars
+  // are already comfortably above MIN_BAR_W, so desktop behavior here is
+  // completely unchanged from before this existed.
+  const MIN_BAR_W = 26;
+  const naturalChartW = containerW - PAD.left - PAD.right;
+  const naturalBarW   = (naturalChartW - gap * (n - 1)) / n;
+  const needsScroll = naturalBarW < MIN_BAR_W;
+  const barW   = needsScroll ? MIN_BAR_W : Math.max(4, naturalBarW);
+  const chartW = needsScroll ? (n * barW + (n - 1) * gap) : naturalChartW;
+  const W = chartW + PAD.left + PAD.right;
+
+  el.style.overflowX = needsScroll ? 'auto' : '';
+  el.style.webkitOverflowScrolling = 'touch';
+
   const xPos   = i => PAD.left + i * (barW + gap);
   const yScale = v => PAD.top + chartH - ((v - minVal) / range) * chartH;
 
@@ -84,10 +248,32 @@ function drawChart(containerId, warLabels, dataPoints, height=200, avgOverride=n
   const validVals    = dataPoints.filter(v => v !== null && v > 0);
   const personalBest = validVals.length ? Math.max(...validVals) : null;
 
-  // Metallic gold SVG gradient (only injected when personal best toggle is on)
+  // Metallic gradients: gold/green/red are the pre-existing ones (gold only
+  // injected visually when the personal-best toggle is on); rank 2-5 are
+  // new "shiny medal" gradients for Colosseum-week placement bars (our own
+  // bar) and the Opponents overlay's full bars -- same alternating light/
+  // dark diagonal-band recipe as the gold gradient, just re-tinted per
+  // medal, so every rank reads as reflective metal rather than a flat chip.
   const gradId      = 'goldGrad_' + containerId.replace(/[^a-z0-9]/gi, '_');
   const grnId       = 'grnGrad_'  + containerId.replace(/[^a-z0-9]/gi, '_');
   const redId       = 'redGrad_'  + containerId.replace(/[^a-z0-9]/gi, '_');
+  const rankGradId  = rank => `rankGrad${rank}_` + containerId.replace(/[^a-z0-9]/gi, '_');
+  const RANK_GRADIENT_STOPS = {
+    2: ['#eef2f6', '#9099a6', '#ffffff', '#707886', '#c7ced7'], // silver
+    3: ['#f3b27a', '#a85a28', '#ffd9ad', '#7a3c14', '#d97f3e'], // copper
+    4: ['#c99a6b', '#6b4423', '#e6bd8e', '#4a2f18', '#8a5a30'], // brown
+    5: ['#c97e64', '#6b2f1e', '#d98a6e', '#4a1f14', '#8c4530']  // muted rusty red
+  };
+  const rankGradDefs = Object.keys(RANK_GRADIENT_STOPS).map(rank => {
+    const [c0, c30, c55, c75, c100] = RANK_GRADIENT_STOPS[rank];
+    return `<linearGradient id="${rankGradId(rank)}" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="${c0}"/><stop offset="30%" stop-color="${c30}"/>
+      <stop offset="55%" stop-color="${c55}"/><stop offset="75%" stop-color="${c75}"/>
+      <stop offset="100%" stop-color="${c100}"/>
+    </linearGradient>`;
+  }).join('');
+  // Rank 1 reuses the existing gold gradient rather than a near-identical duplicate.
+  const rankFill = rank => rank === 1 ? `url(#${gradId})` : `url(#${rankGradId(rank)})`;
   const goldGradDef = `<defs>
     <linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%"   stop-color="#ffe066"/>
@@ -102,55 +288,129 @@ function drawChart(containerId, warLabels, dataPoints, height=200, avgOverride=n
     <linearGradient id="${redId}" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#cc6e64"/><stop offset="100%" stop-color="#ad4c46"/>
     </linearGradient>
+    ${rankGradDefs}
   </defs>`;
 
+  // A layered-bar rect for one rank at one war index, sized to that rank's
+  // own value -- shared by both our own placement bar and each opponent's
+  // full bar in the loop below. Same stroke width and no halo for every
+  // rank, so all five bars are always the exact same size.
+  const buildRankBar = (x, rank, v) => {
+    const y = yScale(v);
+    const h = Math.max(2, chartH - (y - PAD.top));
+    const { stroke } = RANK_COLOR[rank];
+    const ord = rank === 1 ? '1st' : rank === 2 ? '2nd' : rank === 3 ? '3rd' : rank === 4 ? '4th' : '5th';
+    const rectSvg = `<rect class="chart-bar-rect" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${rankFill(rank)}" stroke="${stroke}" stroke-width="1" rx="3"/>`;
+    return wrapChartBar(rectSvg, { cx: x + barW / 2, topY: y, val: v, context: ord });
+  };
+
+  // Bars + Opponents overlay share one loop per war so paint order can be
+  // interleaved correctly: opponents that beat us this war are painted
+  // BEHIND our bar (only the sliver above our bar's height -- their margin
+  // over us -- pokes out); opponents we beat are painted IN FRONT of our
+  // bar (their own full height shows as a layer on top, and our bar's
+  // remaining height above that shows our margin over them). Multiple bars
+  // on the same side are further ordered tallest-first so each one's own
+  // peak still reads as a distinct band instead of the tallest hiding the
+  // rest of that side.
   const bars = dataPoints.map((v, i) => {
     if (v === null) return '';
     const x = xPos(i);
     if (v === 0) {
       // Missed war — small red stub at the baseline
-      return `<rect x="${x.toFixed(1)}" y="${(PAD.top + chartH - 8).toFixed(1)}" width="${barW.toFixed(1)}" height="8" fill="rgba(224,82,82,0.4)" rx="1"/>`;
+      const stubY = PAD.top + chartH - 8;
+      const stubRect = `<rect class="chart-bar-rect" x="${x.toFixed(1)}" y="${stubY.toFixed(1)}" width="${barW.toFixed(1)}" height="8" fill="rgba(224,82,82,0.4)" rx="1"/>`;
+      return wrapChartBar(stubRect, { cx: x + barW / 2, topY: stubY, val: 0, context: 'Missed' });
     }
     const y      = yScale(v);
     const h      = Math.max(2, chartH - (y - PAD.top));
-    const isGold = showPersonalBest && personalBest !== null && v === personalBest;
+    // Placement coloring (Colosseum weeks, Opponents toggle on) takes over
+    // from the usual above/below-avg green/red -- and from the personal-
+    // best gold gradient, since a bar can't be textured two different ways
+    // at once and placement is the more specific, explicitly-requested
+    // signal here.
+    // Bar recoloring stays scoped to the Opponents toggle (only ever true on
+    // the Clan Total chart when opponentSeries is passed); the x-axis
+    // label's placement color further down uses ourRankSeries directly and
+    // isn't gated by the toggle, since it's about our own result.
+    const placementRank = (opponentSeries && ourRankSeries) ? ourRankSeries[i] : null;
+    const isGold = !placementRank && showPersonalBest && personalBest !== null && v === personalBest;
     const above  = v >= allTimeAvg;
     let fill, stroke, strokeW;
-    if (isGold) { fill = `url(#${gradId})`; stroke = '#ffe066'; strokeW = '1.5'; }
-    else if (isRoyal) {
+    if (placementRank && RANK_COLOR[placementRank]) {
+      fill = rankFill(placementRank);
+      stroke = RANK_COLOR[placementRank].stroke;
+      strokeW = '1';
+    } else if (isGold) { fill = `url(#${gradId})`; stroke = '#ffe066'; strokeW = '1.5'; }
+    else {
       fill = above ? `url(#${grnId})` : `url(#${redId})`;
       stroke = above ? 'rgba(50,90,48,0.55)' : 'rgba(120,55,52,0.55)'; strokeW = '1';
-    } else {
-      fill = above ? 'rgba(38,194,129,0.55)' : 'rgba(224,82,82,0.55)';
-      stroke = above ? 'rgba(38,194,129,0.9)' : 'rgba(224,82,82,0.9)'; strokeW = '1';
     }
-    const radius = isRoyal ? 3 : 1;
-    // subtle top highlight strip (royal only) — thin and soft, not a heavy gloss block
+    const radius = 3;
+    // subtle top highlight strip — thin and soft, not a heavy gloss block
     const sheen = isGold
-      ? `<rect x="${(x + barW * 0.15).toFixed(1)}" y="${y.toFixed(1)}" width="${(barW * 0.25).toFixed(1)}" height="${h.toFixed(1)}" fill="rgba(255,255,200,0.16)" rx="1"/>`
-      : (isRoyal && h > 6)
-        ? `<rect x="${(x+1.5).toFixed(1)}" y="${(y+1).toFixed(1)}" width="${Math.max(1,barW-3).toFixed(1)}" height="${Math.min(h*0.12,5).toFixed(1)}" fill="rgba(255,255,255,0.16)" rx="${radius}"/>`
+      ? `<rect class="chart-bar-sheen" pointer-events="none" x="${(x + barW * 0.15).toFixed(1)}" y="${y.toFixed(1)}" width="${(barW * 0.25).toFixed(1)}" height="${h.toFixed(1)}" fill="rgba(255,255,200,0.16)" rx="1"/>`
+      : (h > 6)
+        ? `<rect class="chart-bar-sheen" pointer-events="none" x="${(x+1.5).toFixed(1)}" y="${(y+1).toFixed(1)}" width="${Math.max(1,barW-3).toFixed(1)}" height="${Math.min(h*0.12,5).toFixed(1)}" fill="rgba(255,255,255,0.16)" rx="${radius}"/>`
         : '';
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}" rx="${radius}"/>${sheen}`;
+    const ourBarRect = `<rect class="chart-bar-rect" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}" rx="${radius}"/>${sheen}`;
+    const ourBar = wrapChartBar(ourBarRect, { cx: x + barW / 2, topY: y, val: v, context: opponentSeries ? 'Us' : '' });
+
+    let behindUs = '', inFrontOfUs = '';
+    if (opponentSeries) {
+      const entries = [];
+      for (let rank = 1; rank <= 5; rank++) {
+        const series = opponentSeries[rank];
+        const ov = series ? series[i] : null;
+        if (ov === null || ov === undefined) continue;
+        entries.push({ rank, v: ov });
+      }
+      behindUs    = entries.filter(e => e.v > v).sort((a, b) => b.v - a.v).map(e => buildRankBar(x, e.rank, e.v)).join('');
+      inFrontOfUs = entries.filter(e => e.v <= v).sort((a, b) => b.v - a.v).map(e => buildRankBar(x, e.rank, e.v)).join('');
+    }
+
+    return behindUs + ourBar + inFrontOfUs;
   }).join('');
 
-  // All-time avg reference line — bold royal-blue dashes in royal mode
+  // All-time avg reference line — bold royal-blue dashes
   const avgY    = yScale(allTimeAvg).toFixed(1);
-  const avgStroke = isRoyal ? C_BLUE : 'rgba(180,180,180,0.5)';
-  const avgWidth  = isRoyal ? '2.5'  : '1.5';
-  const avgDash   = isRoyal ? '7,4'  : '4,3';
-  const avgLblCol = isRoyal ? C_BLUE : 'rgba(180,180,180,0.6)';
+  const avgStroke = C_BLUE;
+  const avgWidth  = '2.5';
+  const avgDash   = '7,4';
+  const avgLblCol = C_BLUE;
   const avgLabel = avgOverride !== null
     ? `Clan ${Math.round(allTimeAvg).toLocaleString()}`
     : Math.round(allTimeAvg).toLocaleString();
   const avgLine = `<line x1="${PAD.left}" y1="${avgY}" x2="${(PAD.left + chartW).toFixed(1)}" y2="${avgY}" stroke="${avgStroke}" stroke-width="${avgWidth}" stroke-dasharray="${avgDash}"/>
-    <text x="${(PAD.left + chartW + 4).toFixed(1)}" y="${avgY}" dominant-baseline="middle" fill="${avgLblCol}" font-size="${lblSize}" font-weight="${isRoyal ? '700' : '400'}" font-family="${chartFont}">${avgLabel}</text>`;
+    <text x="${(PAD.left + chartW + 4).toFixed(1)}" y="${avgY}" dominant-baseline="middle" fill="${avgLblCol}" font-size="${lblSize}" font-weight="700" font-family="${chartFont}">${avgLabel}</text>`;
 
-  // X-axis war labels (skip every 3rd when many wars to avoid overlap)
+  // X-axis war labels — skip labels to avoid overlap, based purely on
+  // actual available pixel width per label (chartW / estimated label
+  // slot width). This must be WIDTH-driven only, never war-count-driven:
+  // an earlier version also thinned desktop charts once a clan passed 15
+  // wars (a pre-existing behavior this width-aware logic accidentally
+  // preserved via a "legacySkip" floor) — that's a non-mobile feature and
+  // should never have been touched. Wide/desktop containers have plenty
+  // of room per label regardless of war count, so this now only thins
+  // labels when the container is genuinely too narrow to show them all.
+  const minLabelPx = 42;
+  const widthMaxLabels = Math.max(1, Math.floor(chartW / minLabelPx));
+  const xSkip = n > widthMaxLabels ? Math.ceil(n / widthMaxLabels) : 1;
   const xLabels = warLabels.map((lbl, i) => {
-    if (n > 15 && i % 3 !== 0) return '';
+    if (xSkip > 1 && i % xSkip !== 0) return '';
     const cx = xPos(i) + barW / 2;
-    return `<text x="${cx.toFixed(1)}" y="${(PAD.top + chartH + 16).toFixed(1)}" text-anchor="middle" fill="${lblColor}" font-size="${lblSize}" font-weight="${isRoyal ? '700' : '400'}" font-family="${chartFont}">${lbl}</text>`;
+    // Colosseum weeks get a blue label by default -- same as before the
+    // Opponents feature existed. Only when the Opponents toggle is on does
+    // it switch to OUR placement color (gold if 1st, silver if 2nd, ...),
+    // matching the placement-colored bar that toggle also enables. Same
+    // color regardless of device, since this is drawn once into the SVG
+    // both mobile and desktop share.
+    const isColosseum = warTypes && isColosseumWar(warTypes[i]);
+    const placementForLabel = opponentSeries && ourRankSeries ? ourRankSeries[i] : null;
+    const thisLblColor = !isColosseum ? lblColor
+      : placementForLabel && RANK_LABEL_COLOR[placementForLabel] ? RANK_LABEL_COLOR[placementForLabel]
+      : C_BLUE;
+    return `<text x="${cx.toFixed(1)}" y="${(PAD.top + chartH + 16).toFixed(1)}" text-anchor="middle" fill="${thisLblColor}" font-size="${lblSize}" font-weight="700" font-family="${chartFont}">${lbl}</text>`;
   }).join('');
 
   // Y-axis labels and horizontal grid lines
@@ -158,22 +418,73 @@ function drawChart(containerId, warLabels, dataPoints, height=200, avgOverride=n
   const yLabels = Array.from({ length: ySteps + 1 }, (_, i) => {
     const v = minVal + (range * i / ySteps);
     const y = yScale(v);
-    return `<text x="${(PAD.left - 6).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="end" dominant-baseline="middle" fill="${lblColor}" font-size="${lblSize}" font-weight="${isRoyal ? '700' : '400'}" font-family="${chartFont}">${Math.round(v).toLocaleString()}</text>`
+    return `<text x="${(PAD.left - 6).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="end" dominant-baseline="middle" fill="${lblColor}" font-size="${lblSize}" font-weight="700" font-family="${chartFont}">${Math.round(v).toLocaleString()}</text>`
       + `<line x1="${PAD.left}" y1="${y.toFixed(1)}" x2="${(PAD.left + chartW).toFixed(1)}" y2="${y.toFixed(1)}" stroke="${gridCol}" stroke-width="1"/>`;
   }).join('');
 
-  el.innerHTML = `<svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}">
+  // Explicit pixel width (not "100%") — when needsScroll is true this is
+  // wider than the container on purpose, so it doesn't get squished back
+  // down; when false, W === containerW so this renders identically to
+  // width:100% anyway. The ResizeObserver in renderGraphic() re-runs this
+  // function on any real container resize, so we don't need width:100%'s
+  // own CSS-driven responsiveness anymore.
+  el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block">
     ${goldGradDef}
     ${yLabels}
     ${bars}
     ${avgLine}
     ${xLabels}
   </svg>`;
+  attachChartBarTooltips(el, containerId);
 }
 
 // ══════════════════════════════════════════════════════
 //  RENDER — GRAPHIC MODE
 // ══════════════════════════════════════════════════════
+
+// Opponent clans' total fame per war, from the STANDINGS sheet — powers the
+// Clan Total Fame Per War chart's "Opponents" overlay toggle. Rank/color
+// mapping is positional (gold=1st ... rusty red=5th), not tied to a specific
+// clan identity, since a different clan can hold a given rank week to week
+// (matches how the in-game leaderboard actually works). Returns one series
+// per rank, each aligned 1:1 with completedWars -- a war's slot in a given
+// rank's series is null whenever WE held that rank that week (already
+// shown by our own bar, not redrawn as an "opponent"), no STANDINGS row
+// exists for that war at all (sheet not finalized/backfilled yet), or the
+// war isn't a Colosseum week.
+// That last condition is load-bearing, not cosmetic: per parseStandingsSheet
+// (parse.js), STANDINGS' CLAN_FAME column is true fame only on Colosseum
+// weeks -- on a normal week it's boat-repair score, a different metric on a
+// different scale than the true summed fame our own bar shows. Plotting
+// that against our bar on a normal week would look like a real fame
+// comparison without being one, so those weeks are left as gaps instead
+// (confirmed this tradeoff with Dunk over hiding vs. showing-anyway).
+function calcOpponentRankSeries(completedWars) {
+  const byRank = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+  completedWars.forEach(w => {
+    const standings = isColosseumWar(w.warType) ? (WAR_STANDINGS[String(w.id)] || []) : [];
+    for (let rank = 1; rank <= 5; rank++) {
+      const entry = standings.find(e => e.rank === rank);
+      byRank[rank].push(entry && !entry.isUs ? entry.fame : null);
+    }
+  });
+  return byRank;
+}
+
+// Our own rank for each war, from the STANDINGS sheet -- lets the Clan
+// Total Fame Per War chart color OUR bar by placement (gold/silver/
+// copper/brown/black) instead of the usual above/below-avg green/red, on
+// the same Colosseum weeks the Opponents overlay applies to (same reason:
+// STANDINGS' rank field is always valid, but this is only meaningful
+// alongside true comparable fame data, which is Colosseum-only).
+function calcOurRankSeries(completedWars) {
+  return completedWars.map(w => {
+    if (!isColosseumWar(w.warType)) return null;
+    const standings = WAR_STANDINGS[String(w.id)] || [];
+    const ourEntry = standings.find(e => e.isUs);
+    return ourEntry ? ourEntry.rank : null;
+  });
+}
 
 // Pure calculation for the Graphic tab's two clan-wide charts and player
 // list — war labels/stats, clan totals, sorted active/inactive rosters,
@@ -183,6 +494,10 @@ function calcGraphicData() {
   // (collapsing all _LIVE snapshot columns into one using current LIVE_DATA from CR API)
   const completedWars = WARS.filter(w => !w.isLive);
   const graphicLabels = completedWars.map(w => w.label || ('War '+w.id));
+  // Aligned 1:1 with graphicLabels/warLabels (and totalLabels, a copy of
+  // graphicLabels taken after this array's own live-bar null below) --
+  // lets drawChart() color a war's x-axis label blue for Colosseum weeks.
+  const warTypes = completedWars.map(w => w.warType);
   const graphicStats = completedWars.map((w) => {
     const vals = PLAYERS
       .filter(p => !isInactive(p))
@@ -206,6 +521,7 @@ function calcGraphicData() {
       const liveVal = Math.round(liveFames.reduce((a,b)=>a+b,0) / liveFames.length);
       graphicLabels.push('Live');
       graphicStats.push(liveVal);
+      warTypes.push(null); // an in-progress war is never a known Colosseum week yet
     }
   }
 
@@ -224,6 +540,15 @@ function calcGraphicData() {
     if (!scores.length) return null;
     return scores.reduce((a, b) => a + b, 0);
   });
+  // Opponents overlay (Clan Total Fame Per War chart only) — one series per
+  // RANK (1st..5th), not per clan identity, since a different clan can hold
+  // a given rank week to week (matches the in-game leaderboard). Built
+  // against completedWars before the live-bar append below, then padded to
+  // match if a live bar actually gets appended, so it stays aligned with
+  // clanTotalStats regardless of which branch that append takes.
+  const opponentRankSeries = calcOpponentRankSeries(completedWars);
+  const ourRankSeries = calcOurRankSeries(completedWars);
+
   // Append a single live total bar if toggled, using current cumulative fame from the API
   if (includeLive && Object.keys(LIVE_DATA).length && warHasStarted()) {
     const activeLivePlayers = Object.values(LIVE_DATA).filter(p => {
@@ -232,7 +557,12 @@ function calcGraphicData() {
       return match && !isInactive(match);
     });
     const liveTotal = activeLivePlayers.reduce((a, p) => a + (p.fame || 0), 0);
-    if (liveTotal > 0) clanTotalStats.push(liveTotal);
+    if (liveTotal > 0) {
+      clanTotalStats.push(liveTotal);
+      // STANDINGS has no row for an in-progress war -- no opponent/rank data yet.
+      for (let rank = 1; rank <= 5; rank++) opponentRankSeries[rank].push(null);
+      ourRankSeries.push(null);
+    }
   }
 
   // Sort active and inactive players separately, applying search filter
@@ -260,8 +590,8 @@ function calcGraphicData() {
   })();
 
   return {
-    completedWars, warLabels, clanStats, totalLabels, clanTotalStats,
-    sortedActive, sortedInactive, clanAvgPerPlayer
+    completedWars, warLabels, clanStats, totalLabels, clanTotalStats, warTypes,
+    opponentRankSeries, ourRankSeries, sortedActive, sortedInactive, clanAvgPerPlayer
   };
 }
 
@@ -278,6 +608,10 @@ function calcPlayerChartRow(p) {
 }
 
 function renderGraphic() {
+  // See renderData()'s note -- the mobile controls are real elements
+  // hosted inside #main, so they must be parked before it's replaced.
+  parkTabControls();
+
   const g = calcGraphicData();
   const { warLabels, clanStats, totalLabels, clanTotalStats, sortedActive, sortedInactive, clanAvgPerPlayer, completedWars } = g;
 
@@ -291,12 +625,32 @@ function renderGraphic() {
         <span class="player-chart-expand">${r.isOpen ? '▲ collapse' : '▼ expand'}</span>
       </div>
       <div class="player-chart-body ${r.isOpen ? 'open' : ''}" id="${r.chartId}">
-        <div id="${r.chartId}_svg" style="width:100%"></div>
+        <div id="${r.chartId}_svg" style="width:100%;height:160px"></div>
       </div>
     </div>`;
   }).join('');
 
+  // Mobile-only controls banner above the two clan-wide charts (purple,
+  // matching this tab's own mode button). It used to be a hand-built
+  // banner holding a DUPLICATE of the control bar's Opponents toggle
+  // -- that copy rendered as bare grey text on the
+  // purple until it was tapped, because a lone <button class="btn"> gets
+  // no background of its own outside a .btn-group (the real control bar
+  // button is inside one, which is what gives it its blue pill). It now
+  // hosts the REAL #grp-graphic controls instead (see mountTabControls(),
+  // main.js), so there's exactly one Opponents button in the app, styled
+  // by the same rules on both layouts and correct from first render.
+  const mobileGeneralBanner = tabControlBannerHtml('graphic');
+
+  const opponentsLegend = showOpponents ? `
+        <div class="chart-legend-item"><div class="chart-legend-dot" style="background:#ffd84d"></div> 1st</div>
+        <div class="chart-legend-item"><div class="chart-legend-dot" style="background:#cdd3dc"></div> 2nd</div>
+        <div class="chart-legend-item"><div class="chart-legend-dot" style="background:#c9752e"></div> 3rd</div>
+        <div class="chart-legend-item"><div class="chart-legend-dot" style="background:#8a5a30"></div> 4th</div>
+        <div class="chart-legend-item"><div class="chart-legend-dot" style="background:#8c4530"></div> 5th</div>` : '';
+
   document.getElementById('main').innerHTML = `
+    ${mobileGeneralBanner}
     <!-- CLAN TOTAL CHART -->
     <div class="clan-chart-wrap">
       <div class="clan-chart-title">
@@ -304,8 +658,9 @@ function renderGraphic() {
         <div class="chart-legend-item"><div class="chart-legend-dot" style="background:rgba(38,194,129,0.6)"></div> Above avg</div>
         <div class="chart-legend-item"><div class="chart-legend-dot" style="background:rgba(224,82,82,0.6)"></div> Below avg</div>
         <div class="chart-legend-item"><div class="chart-legend-dot" style="background:rgba(180,180,180,0.5);height:2px"></div> All-time avg</div>
+        ${opponentsLegend}
       </div>
-      <div id="clan-total-chart-svg" style="width:100%"></div>
+      <div id="clan-total-chart-svg" style="width:100%;height:220px"></div>
     </div>
 
     <!-- CLAN AVG/MAX CHART -->
@@ -316,46 +671,85 @@ function renderGraphic() {
         <div class="chart-legend-item"><div class="chart-legend-dot" style="background:rgba(224,82,82,0.6)"></div> Below avg</div>
         <div class="chart-legend-item"><div class="chart-legend-dot" style="background:rgba(180,180,180,0.5);height:2px"></div> All-time avg</div>
       </div>
-      <div id="clan-chart-svg" style="width:100%"></div>
+      <div id="clan-chart-svg" style="width:100%;height:220px"></div>
     </div>
 
     <!-- ACTIVE PLAYERS -->
     <div class="g-section-hdr">
-      <span>⬟</span> Active Members — ${sortedActive.length}
+      Active Members — ${sortedActive.length}
     </div>
     ${buildPlayerRows(sortedActive, false)}
 
     <!-- INACTIVE PLAYERS -->
     ${sortedInactive.length ? `
     <div class="g-section-hdr" style="margin-top:20px;opacity:0.5">
-      <span>⬟</span> Inactive / Former Members — ${sortedInactive.length}
+      Inactive / Former Members — ${sortedInactive.length}
     </div>
     ${buildPlayerRows(sortedInactive, true)}` : ''}
   `;
 
-  // Draw clan chart and any expanded player charts
-  requestAnimationFrame(() => {
-    // Clan charts always use avg (max toggling is relegated)
-    drawChart('clan-chart-svg', warLabels, clanStats, 220);
-    drawChart('clan-total-chart-svg', totalLabels, clanTotalStats, 220);
-    for (const name of expandedCharts) {
-      const p = PLAYERS.find(x => x.name === name);
-      if (!p) continue;
-      const chartId = 'pchart_' + name.replace(/[^a-z0-9]/gi, '_');
-      // Use only completed war scores, then append single live bar if toggled
-      const playerScores = completedWars.map(w => {
-        const idx = WARS.findIndex(x => x.id === w.id && !x.isLive);
-        return idx === -1 ? null : (p.scores[idx] ?? null);
-      });
-      if (includeLive && Object.keys(LIVE_DATA).length && warHasStarted()) {
-        const liveEntry = LIVE_DATA[p.name.toLowerCase()];
-        playerScores.push(liveEntry ? (liveEntry.fame || 0) : 0);
-      }
-      // Pass clan avg as reference line when toggle is set to 'clan'
-      const clanAvgRef = graphicMetric === 'clan' ? clanAvgPerPlayer : null;
-      drawChart(chartId + '_svg', warLabels, playerScores, 160, clanAvgRef);
+  mountTabControls(); // main.js -- fills the banner above on mobile
+
+  // Draw clan chart and any expanded player charts once their containers
+  // have a real, settled measured size. A single requestAnimationFrame
+  // here used to be the only trigger — reliable on desktop, but not on
+  // real mobile browsers: layout can still be mid-reflow (sticky-header
+  // wrapping, web font swap, orientation) when that one frame fires,
+  // so drawChart() reads a stale/too-narrow clientWidth and draws a
+  // skinny, misproportioned chart that only "fixes itself" on the next
+  // unrelated re-render. ResizeObserver's first callback fires with the
+  // container's actual current size as soon as it's known, and fires
+  // again on any later real resize (e.g. rotating the phone) — so charts
+  // always draw against a real measurement instead of a guessed one.
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(() => redrawGraphicCharts());
+    const toObserve = [
+      document.getElementById('clan-chart-svg'),
+      document.getElementById('clan-total-chart-svg'),
+      ...[...expandedCharts].map(name => document.getElementById('pchart_' + name.replace(/[^a-z0-9]/gi, '_') + '_svg'))
+    ];
+    toObserve.forEach(el => { if (el) observer.observe(el); });
+  } else {
+    // Fallback for environments without ResizeObserver
+    requestAnimationFrame(redrawGraphicCharts);
+  }
+}
+
+// Draws the two clan-wide charts plus any currently-expanded per-player
+// charts. Recomputes calcGraphicData() fresh each call rather than
+// closing over renderGraphic()'s data, since this can fire asynchronously
+// (from the ResizeObserver in renderGraphic() above) well after the mode
+// or a toggle has changed again — a stale closure would draw outdated data.
+function redrawGraphicCharts() {
+  const g = calcGraphicData();
+  const { warLabels, clanStats, totalLabels, clanTotalStats, warTypes, opponentRankSeries, ourRankSeries, clanAvgPerPlayer, completedWars } = g;
+
+  // Clan charts always use avg (max toggling is relegated). Opponents
+  // overlay (and the placement-colored bars it enables) is Clan Total Fame
+  // Per War only, per the toggle's scope -- but ourRankSeries is passed to
+  // every chart unconditionally, since a Colosseum week's x-axis label
+  // colors by our own placement regardless of whether the toggle is on.
+  if (document.getElementById('clan-chart-svg'))      drawChart('clan-chart-svg', warLabels, clanStats, 220, null, null, warTypes, ourRankSeries);
+  if (document.getElementById('clan-total-chart-svg')) drawChart('clan-total-chart-svg', totalLabels, clanTotalStats, 220, null, showOpponents ? opponentRankSeries : null, warTypes, ourRankSeries);
+
+  for (const name of expandedCharts) {
+    const p = PLAYERS.find(x => x.name === name);
+    if (!p) continue;
+    const chartId = 'pchart_' + name.replace(/[^a-z0-9]/gi, '_');
+    if (!document.getElementById(chartId + '_svg')) continue;
+    // Use only completed war scores, then append single live bar if toggled
+    const playerScores = completedWars.map(w => {
+      const idx = WARS.findIndex(x => x.id === w.id && !x.isLive);
+      return idx === -1 ? null : (p.scores[idx] ?? null);
+    });
+    if (includeLive && Object.keys(LIVE_DATA).length && warHasStarted()) {
+      const liveEntry = LIVE_DATA[p.name.toLowerCase()];
+      playerScores.push(liveEntry ? (liveEntry.fame || 0) : 0);
     }
-  });
+    // Pass clan avg as reference line when toggle is set to 'clan'
+    const clanAvgRef = graphicMetric === 'clan' ? clanAvgPerPlayer : null;
+    drawChart(chartId + '_svg', warLabels, playerScores, 160, clanAvgRef, null, warTypes, ourRankSeries);
+  }
 }
 
 
@@ -382,6 +776,17 @@ function setGSort(s) {
   const groups = document.querySelectorAll('#grp-graphic .btn-group');
   if (groups[1]) groups[1].querySelectorAll('.btn').forEach((b, i) =>
     b.classList.toggle('active', ['avg', 'alpha'][i] === s));
+  if (mode === 'graphic') renderGraphic();
+}
+
+// One button, both layouts: #btn-opponents-g is the only Opponents toggle
+// in the app now -- on mobile it's relocated into this tab's controls
+// banner rather than duplicated there (see renderGraphic()'s comment on
+// the banner, and mountTabControls() in main.js).
+function toggleOpponents() {
+  showOpponents = !showOpponents;
+  const b = document.getElementById('btn-opponents-g');
+  if (b) b.classList.toggle('btn-opponents-on', showOpponents);
   if (mode === 'graphic') renderGraphic();
 }
 

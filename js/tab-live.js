@@ -209,8 +209,9 @@ function calcWarSummary(sortedPlayers, currentDay, isSheetReview = false) {
   if (isSheetReview) {
     const recentStandings = getOurMostRecentStandings();
     rankClanCount = recentStandings ? (WAR_STANDINGS[String(recentStandings.warId)] || []).length : 0;
+    const recentWar = recentStandings ? WARS.find(w => w.id === recentStandings.warId) : null;
     ourRank = recentStandings
-      ? getAdjustedRank(recentStandings, WAR_STANDINGS[String(recentStandings.warId)])
+      ? getAdjustedRank(recentStandings, WAR_STANDINGS[String(recentStandings.warId)], recentWar && recentWar.warType)
       : null;
   } else {
     rankClanCount = LIVE_RACE_CLANS.length;
@@ -441,8 +442,6 @@ function calcDayColumn(dayIdx, sortedPlayers, currentDay, warStarted, isSheetRev
     : dayFillRatio >= 0.33 ? 'var(--orange)'
     : 'var(--red)';
 
-  // Count distinct contributing members for this day — current clan members only
-  // (excludes REMOVED/kicked players from the 50-member cap count)
   let dayContributors = 0;
   if (!isFuture) {
     sortedPlayers.forEach(p => {
@@ -513,12 +512,15 @@ function calcDayColumn(dayIdx, sortedPlayers, currentDay, warStarted, isSheetRev
       : 'incomplete';
     const decksClass  = decks >= DECKS_PER_DAY ? 'full' : decks > 0 ? 'partial' : 'empty';
 
-    // Look up the PLAYERS entry for tag detection
+    // Look up the PLAYERS entry for tag detection. isSheetReview uses
+    // playerTagForWarReview() instead of playerTag() -- see that function's
+    // comment for why the plain REMOVED check is wrong during training day.
     const playerObj = PLAYERS.find(pl => pl.name.toLowerCase() === p.name.toLowerCase());
     const cardKey = p.name.toLowerCase();
-    const tag = playerObj ? playerTag(playerObj)
+    const tagFn = isSheetReview ? playerTagForWarReview : playerTag;
+    const tag = playerObj ? tagFn(playerObj)
       : SWAPPER_NAMES.has(cardKey) ? 'swapper'
-      : (!LIVE_ROLES[cardKey] ? 'removed' : null);
+      : (isSheetReview ? (LIVE_SHEET_DATA[cardKey] ? 'removed' : null) : (!LIVE_ROLES[cardKey] ? 'removed' : null));
 
     return { name: p.name, decks, fame, tag, isMatch, cardClass, decksClass };
   });
@@ -538,40 +540,64 @@ function calcDayColumn(dayIdx, sortedPlayers, currentDay, warStarted, isSheetRev
 function buildLiveDayColumn(dayIdx, sortedPlayers, currentDay, warStarted, isSheetReview = false) {
   const d = calcDayColumn(dayIdx, sortedPlayers, currentDay, warStarted, isSheetReview);
 
-  // Text styles — high contrast white on colored header backgrounds
-  const numStyle = `font-family:Orbitron,monospace;font-weight:700;color:#ffffff`;
-  const capStyle = `font-family:'Share Tech Mono',monospace;color:rgba(255,255,255,0.7)`;
+  // Text styles — high contrast white on colored header backgrounds.
+  // Lilita One throughout (numbers and labels alike) -- Orbitron's "0"
+  // renders with a slash through it in this app's actual font stack,
+  // which reads as a generic techy/robotic monospace, not the Supercell
+  // house style this whole tracker is meant to match. Numbers and labels
+  // stay visually distinct via size/weight/color, not a different font.
+  const numStyle = `font-family:'Lilita One',system-ui,sans-serif;color:#ffffff`;
+  const capStyle = `font-family:'Lilita One',system-ui,sans-serif;color:rgba(255,255,255,0.7)`;
+  const lblStyle = `font-family:'Lilita One',system-ui,sans-serif;color:rgba(255,255,255,0.6)`;
+  // Upcoming (isFuture) days used to render a single small "0/200"
+  // counter here instead of this full battles/members + fame +
+  // cumulative layout — structurally much shorter, so an upcoming day's
+  // header ended up a different height than a live/past day's. Since
+  // .live-war-grid stretches every column to match its tallest sibling
+  // (flex default align-items:stretch), that header-height mismatch
+  // alone was enough to make otherwise-identical-length day columns
+  // report different total heights — which is what actually caused rows
+  // landing in different places when swiping between days, not just a
+  // rendering-timing issue. calcDayColumn() already zeroes dayBattles/
+  // dayContributors/dayFame/cumBattles for a future day and already
+  // computes dimmed placeholder colors for it (memberColor/fameColor),
+  // so always using this one layout needs no extra isFuture branching
+  // here — an upcoming day just naturally shows "0/200" etc. in dimmed
+  // colors, same structure, same height, every time.
   const counterHtml = `<div class="live-day-label">${d.label} — ${d.statusLabel}</div>`
-    + (d.isFuture
-      ? `<div class="live-day-counter" style="color:rgba(255,255,255,0.5)">0<span style="${capStyle};font-size:10px">/${d.dayCap}</span></div>`
-      : `<div style="display:flex;justify-content:space-between;align-items:center;width:100%;margin-top:2px">`
-        + `<div style="display:flex;flex-direction:column;gap:3px">`
-        + `<div style="${numStyle};font-size:18px;line-height:1">${d.dayBattles}<span style="${capStyle};font-size:11px">/${d.dayCap}</span></div>`
-        + `<div style="${numStyle};font-size:13px;line-height:1;color:${d.memberColor}">${d.dayContributors}<span style="${capStyle};font-size:10px">/${d.MEMBER_CAP} members</span></div>`
-        + `</div>`
-        + `<div style="text-align:center;flex:1;padding:0 8px">`
-        + `<div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:rgba(255,255,255,0.6);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:1px">fame</div>`
-        + `<div style="${numStyle};font-size:16px;line-height:1;color:${d.fameColor}">${d.dayFame > 0 ? d.dayFame.toLocaleString() : '—'}</div>`
-        + `</div>`
-        + `<div style="text-align:right">`
-        + `<div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:rgba(255,255,255,0.6);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:1px">cumulative</div>`
-        + `<div style="${numStyle};font-size:14px;line-height:1;color:rgba(255,255,255,0.85)">${d.cumBattles}<span style="${capStyle};font-size:10px">/${d.cumCap}</span></div>`
-        + `</div>`
-        + `</div>`
-    );
+    + `<div class="live-day-counters-row" style="display:flex;justify-content:space-between;align-items:center;width:100%;margin-top:2px">`
+    + `<div style="display:flex;flex-direction:column;gap:3px">`
+    + `<div class="live-day-battles" style="${numStyle};font-size:18px;line-height:1">${d.dayBattles}<span class="live-day-cap" style="${capStyle};font-size:11px">/${d.dayCap}</span></div>`
+    + `<div class="live-day-members" style="${numStyle};font-size:13px;line-height:1;color:${d.memberColor}">${d.dayContributors}<span class="live-day-cap" style="${capStyle};font-size:10px">/${d.MEMBER_CAP} members</span></div>`
+    + `</div>`
+    + `<div class="live-day-fame-wrap" style="text-align:center;flex:1;padding:0 8px">`
+    + `<div class="live-day-mini-lbl" style="${lblStyle};font-size:9px;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:1px">fame</div>`
+    + `<div class="live-day-fame-val" style="${numStyle};font-size:16px;line-height:1;color:${d.fameColor}">${d.dayFame > 0 ? d.dayFame.toLocaleString() : '—'}</div>`
+    + `</div>`
+    + `<div class="live-day-cum-wrap" style="text-align:right">`
+    + `<div class="live-day-mini-lbl" style="${lblStyle};font-size:9px;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:1px">cumulative</div>`
+    + `<div class="live-day-cum-val" style="${numStyle};font-size:14px;line-height:1;color:rgba(255,255,255,0.85)">${d.cumBattles}<span class="live-day-cap" style="${capStyle};font-size:10px">/${d.cumCap}</span></div>`
+    + `</div>`
+    + `</div>`;
 
   // ── Player cards (with row number) ────────────────────
   const cards = d.players.map((p, idx) => {
     const todayClass = d.isToday ? 'today-card' : '';
     const matchClass = p.isMatch ? 'search-match' : '';
 
-    return `<div class="live-player-card ${p.cardClass} ${todayClass} ${matchClass}">`
-      + `<span style="font-family:Share Tech Mono,monospace;font-size:10px;color:var(--text-dim);min-width:18px;text-align:right;margin-right:6px">${idx + 1}</span>`
+    // .live-card-inner carries the "raised" transform/background/shadow
+    // (see .search-match CSS) -- .live-player-card itself (the element
+    // hover/click logic actually targets) stays geometrically static so
+    // its own position never needs recaching. See attachLiveCardHighlight()
+    // (this file) for the full story on why that split exists.
+    return `<div class="live-player-card ${p.cardClass} ${todayClass} ${matchClass}" data-name="${encodeURIComponent(p.name)}" data-day-idx="${dayIdx}" data-search-match="${p.isMatch ? '1' : '0'}">`
+      + `<div class="live-card-inner">`
+      + `<span class="live-card-rank">${idx + 1}</span>`
       + `<span class="live-card-name">${p.name}${playerTagHtml(p.tag, 'dot')}</span>`
       + `<div class="live-card-right">`
       + `<span class="live-card-decks ${p.decksClass}">${d.showDash ? '-/4' : `${p.decks}/4`}</span>`
       + `<span class="live-card-fame">${d.showDash ? '-' : p.fame > 0 ? p.fame.toLocaleString() : '0'}</span>`
-      + `</div></div>`;
+      + `</div></div></div>`;
   }).join('');
 
   return `<div class="live-day-col">`
@@ -581,7 +607,7 @@ function buildLiveDayColumn(dayIdx, sortedPlayers, currentDay, warStarted, isShe
 }
 
 // Build the war summary table at the bottom of Live mode (total battles + fame per player).
-function buildWarSummaryTable(sortedPlayers, currentDay) {
+function buildWarSummaryTable(sortedPlayers, currentDay, isSheetReview = false) {
   // Apply search filter — hide non-matching players (same behaviour as data/graphic tabs)
   const filtered = searchStr
     ? sortedPlayers.filter(p => p.name.toLowerCase().includes(searchStr.toLowerCase()))
@@ -607,13 +633,15 @@ function buildWarSummaryTable(sortedPlayers, currentDay) {
       : totalFame > 0 ? 'avg-d'
       : '';
 
-    // Same tag lookup as the day-column cards, so swappers/new/removed
-    // players are identifiable here too, not just in the day columns.
+    // Same tag lookup as the day-column cards (including the isSheetReview
+    // swap to playerTagForWarReview()), so swappers/new/removed players
+    // are identifiable here too, not just in the day columns.
     const playerObj = PLAYERS.find(pl => pl.name.toLowerCase() === p.name.toLowerCase());
     const rowKey = p.name.toLowerCase();
-    const rowTag = playerObj ? playerTag(playerObj)
+    const rowTagFn = isSheetReview ? playerTagForWarReview : playerTag;
+    const rowTag = playerObj ? rowTagFn(playerObj)
       : SWAPPER_NAMES.has(rowKey) ? 'swapper'
-      : (!LIVE_ROLES[rowKey] ? 'removed' : null);
+      : (isSheetReview ? (LIVE_SHEET_DATA[rowKey] ? 'removed' : null) : (!LIVE_ROLES[rowKey] ? 'removed' : null));
 
     return `<tr>`
       + `<td><span class="player-name">${p.name}</span>${playerTagHtml(rowTag, 'dot')}</td>`
@@ -933,6 +961,11 @@ function buildProjectionWidget(sortedPlayers, currentDay, warComplete = false) {
 
 // Main Live mode render -- calls the three section builders above.
 function renderLive() {
+  // See renderData()'s note -- the mobile controls are real elements
+  // hosted inside #main, so they must be parked before it's replaced.
+  parkTabControls();
+  const ctrlBanner = tabControlBannerHtml('live');
+
   const apiWarStarted = warHasStarted();
 
   // The current CR API war data resets to 0 fame between wars (training day or
@@ -944,9 +977,13 @@ function renderLive() {
     && Object.values(LIVE_SHEET_DATA).some(s => (s.totalDecks || 0) > 0);
 
   if (!Object.keys(LIVE_DATA).length && !sheetHasData) {
-    document.getElementById('main').innerHTML =
-      '<div class="graphic-placeholder"><span class="graphic-placeholder-icon">&#x26A1;</span>NO LIVE WAR DATA AVAILABLE<br><br>'
+    // Banner still rendered here: the sort/window/card-debug controls it
+    // hosts on mobile are this tab's ONLY access point to them, so an
+    // empty-data state must not strand them off-screen.
+    document.getElementById('main').innerHTML = ctrlBanner
+      + '<div class="graphic-placeholder"><span class="graphic-placeholder-icon">&#x26A1;</span>NO LIVE WAR DATA AVAILABLE<br><br>'
       + '<span style="font-size:11px;opacity:0.6">War runs Thursday-Sunday.</span></div>';
+    mountTabControls();
     return;
   }
 
@@ -959,15 +996,22 @@ function renderLive() {
   let sortedPlayers, currentDay, warStarted;
 
   if (usingSheetFallback) {
-    // Include every clan member the GAS snapshots saw during this war -- even
-    // zero-battle ones. LIVE_SHEET_DATA already only contains names captured
-    // by the API's participants[] list while THIS war was live, so anyone
-    // here was genuinely in the clan/war roster at some point during the war
-    // period. Previously this filtered out 0-battle members entirely, which
-    // hid exactly the players leaders most need to see (people who missed
-    // their whole war). Members since kicked still carry their OUT tag via
-    // playerTag(), so that context isn't lost.
+    // Keep a player here only if they battled at least once during the war
+    // (real decks > 0, so someone who contributed Day 1 then left/was kicked
+    // still shows), OR they're still a current member today (so someone who
+    // stayed all war but had a bad week still shows). Drop anyone who both
+    // never battled AND isn't in the clan anymore -- LIVE_SHEET_DATA can
+    // carry a real 0-battle snapshot row for someone the whole war even when
+    // they weren't a meaningful part of it, and showing that combined with
+    // an OUT tag is exactly the confusing case this excludes.
+    const rosterLoaded = Object.keys(LIVE_ROLES).length > 10;
     sortedPlayers = Object.values(LIVE_SHEET_DATA)
+      .filter(s => {
+        if ((s.totalDecks || 0) > 0) return true;
+        if (!rosterLoaded) return true; // can't verify membership -- don't hide
+        const key = s.name.toLowerCase();
+        return !!LIVE_ROLES[key] || SWAPPER_NAMES.has(key);
+      })
       .map(s => ({
         name: s.name,
         fame: s.totalFame || 0,
@@ -1038,11 +1082,763 @@ function renderLive() {
     : buildWarSummaryPlaceholder();
 
   document.getElementById('main').innerHTML =
-    reviewBanner
+    ctrlBanner
+    + reviewBanner
     + summaryBoxHtml
     + '<div class="live-war-grid">' + dayCols + '</div>'
     + buildProjectionWidget(sortedPlayers, currentDay, usingSheetFallback)
-    + '<div class="g-section-hdr"><span>&#x2BDF;</span> War Summary -- ' + completeCount + '/' + sortedPlayers.length + ' completed all 16 battles</div>'
-    + buildWarSummaryTable(sortedPlayers, currentDay);
+    + '<div class="g-section-hdr">War Summary -- ' + completeCount + '/' + sortedPlayers.length + ' completed all 16 battles</div>'
+    + buildWarSummaryTable(sortedPlayers, currentDay, usingSheetFallback);
+
+  mountTabControls(); // main.js -- fills the banner above on mobile
+  attachLiveCardHighlight();
+}
+
+// Currently pinned (clicked) card element on the Live tab's day grid, or
+// null. A single DOM element, not a player name -- the highlight is scoped
+// to the exact card clicked (one specific player on one specific day), not
+// every card that player has across other days. Module-level rather than
+// per-container since there's only ever one grid on this tab (unlike the
+// Graphic tab's several independent charts).
+let LIVE_PINNED_CARD = null;
+
+// Wires up the "hover or click a card to highlight it" interaction --
+// reuses the exact .search-match visual the search box already applies
+// (raised card + color tint per complete/partial/incomplete), just driven
+// by hover/click instead of typed text. Purely a DOM class toggle: never
+// touches searchStr or calls render(), so it can't affect the summary
+// table's search-filtered row count or any other tab.
+//
+// Uses native, delegated mouseover/mouseout (bubbling equivalents of
+// enter/leave) on the grid -- safe to do now because the "raised" visual
+// (see .search-match CSS) transforms .live-card-inner, a CHILD, not
+// .live-player-card itself. .live-player-card (the element these
+// listeners actually target) never physically moves, so there is no
+// feedback loop to guard against and no position cache needed at all.
+//
+// This replaced an earlier version that raised .live-player-card directly
+// and hit-tested a bounding-box cache taken up front (to dodge exactly
+// that feedback loop). That cache was a real, ongoing source of bugs: any
+// scroll/resize/font-swap it didn't perfectly track in time desynced it
+// from the live layout, and a reported bug (the highlighted card landing
+// several rows from the cursor, while clicks -- native, uncached --
+// still landed correctly) never fully went away across multiple attempts
+// to patch the recache triggers. Moving the transform onto a child
+// removes the cache's reason to exist instead of trying to keep it
+// perfectly in sync -- there's nothing left that can desync.
+function attachLiveCardHighlight() {
+  const grid = document.querySelector('.live-war-grid');
+  if (!grid) return;
+  LIVE_PINNED_CARD = null;
+
+  const showCard = (card) => card.classList.add('search-match');
+  // Never un-highlight a card the SEARCH BOX itself matched -- only a card
+  // highlighted purely by hover/pin should ever be removed here. Without
+  // this, moving the mouse over/off a search-matched card would visually
+  // un-select it, even though the search box's own filter never changed.
+  const hideCard = (card) => { if (card.dataset.searchMatch !== '1') card.classList.remove('search-match'); };
+
+  const allCards = [...grid.querySelectorAll('.live-player-card[data-name]')];
+  allCards.forEach(card => {
+    if (card.classList.contains('future-day')) {
+      // Day hasn't started -- there's no battle to preview or drill into.
+      // stopPropagation so a click doesn't even bubble up to the grid's
+      // "click empty space closes the modal" handler below; otherwise
+      // clicking a future card would silently close an open modal, which
+      // isn't "nothing happens" either.
+      card.addEventListener('click', (e) => e.stopPropagation());
+    }
+  });
+
+  const cards = allCards.filter(c => !c.classList.contains('future-day'));
+
+  let activeCard = null;
+  grid.addEventListener('mouseover', (e) => {
+    const card = e.target.closest('.live-player-card');
+    if (!card || card.classList.contains('future-day') || card === activeCard) return;
+    if (activeCard && activeCard !== LIVE_PINNED_CARD) hideCard(activeCard);
+    activeCard = card;
+    showCard(activeCard);
+  });
+  grid.addEventListener('mouseout', (e) => {
+    const from = e.target.closest('.live-player-card');
+    if (!from || from !== activeCard) return;
+    const to = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.live-player-card');
+    if (from === to) return; // moved to a child of the same card -- still hovering it
+    if (activeCard !== LIVE_PINNED_CARD) hideCard(activeCard);
+    activeCard = null;
+  });
+
+  cards.forEach(card => {
+    card.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (LIVE_PINNED_CARD === card) {
+        closeBattleDetailModal();
+      } else {
+        if (LIVE_PINNED_CARD) hideCard(LIVE_PINNED_CARD);
+        LIVE_PINNED_CARD = card;
+        showCard(card);
+        showBattleDetailModal(decodeURIComponent(card.dataset.name), Number(card.dataset.dayIdx));
+      }
+    });
+  });
+
+  // Clicking empty grid space (not on a card) releases whatever's pinned --
+  // the only dismissal path on touch devices, which have no hover.
+  grid.addEventListener('click', () => closeBattleDetailModal());
+}
+
+// ══════════════════════════════════════════════════════
+//  BATTLE DETAIL MODAL — click a player's card on a given day to see that
+//  day's deck-by-deck breakdown (deck used, win/loss/draw, opponent clan),
+//  fed by BATTLE_LOG (state.js) -- see parseBattleLogSheet() (parse.js) for
+//  where that data comes from and its limits (current war only).
+// ══════════════════════════════════════════════════════
+
+// Pure calculation for one player's one-day battle breakdown. Zero HTML.
+// Always returns exactly DECKS_PER_DAY slots, real battles first (oldest
+// first, matching real deck-slot order) and any remaining slots marked
+// unused -- so a partially-played day shows its real battles plus however
+// many "not used" slots are left, and a day with zero data shows 4 unused
+// slots plus hasAnyData:false for the empty-state message.
+function calcBattleDetail(name, dayIdx) {
+  const entry = BATTLE_LOG[name.toLowerCase()];
+  const real = (entry && entry.days[dayIdx]) || [];
+  // All-time per-deck usage/win/loss, keyed the same order-independent way
+  // parseBattleLogSheet() (parse.js) builds DECK_STATS -- looked up per
+  // slot so each real battle can show "how has THIS deck done overall",
+  // not just this one result.
+  const deckList = (DECK_STATS[name.toLowerCase()] || {}).decks || [];
+  const lookupStats = cards => {
+    const deckKey = cards.map(c => c.name).sort().join('|');
+    return deckList.find(d => d.cards.map(c => c.name).sort().join('|') === deckKey);
+  };
+  const slots = Array.from({ length: DECKS_PER_DAY }, (_, i) => {
+    const b = real[i];
+    if (!b) return { used: false };
+
+    // Legacy rows recorded before the Apps Script's per-round fix still
+    // merge an entire duel's 2-3 games into ONE row with a 16/24-card deck
+    // and one aggregate result (a real, confirmed Supercell API quirk on
+    // the old per-duel-not-per-game fetch) -- split for display, but this
+    // one row can only ever fill this one slot (the sheet never recorded
+    // the other games as their own rows, so there's no way to recover how
+    // many of the player's 4 daily deck-uses it actually cost).
+    if (b.deck.length > 8) {
+      const chunks = [];
+      for (let c = 0; c < b.deck.length; c += 8) chunks.push(b.deck.slice(c, c + 8));
+      const decks = chunks.map((cards, gi) => {
+        const stats = lookupStats(cards);
+        return {
+          cards, result: gi === 0 ? b.result : null,
+          crownsFor: gi === 0 ? b.crownsFor : null, crownsAgainst: gi === 0 ? b.crownsAgainst : null,
+          deckUsage: stats ? stats.usage : 1, deckWins: stats ? stats.wins : 0, deckLosses: stats ? stats.losses : 0
+        };
+      });
+      return {
+        used: true, result: b.result, crownsFor: b.crownsFor, crownsAgainst: b.crownsAgainst,
+        decks, opponentClanName: b.opponentClanName, duelContext: null
+      };
+    }
+
+    const stats = lookupStats(b.deck);
+    const decks = [{
+      cards: b.deck, result: b.result, crownsFor: b.crownsFor, crownsAgainst: b.crownsAgainst,
+      deckUsage: stats ? stats.usage : 1, deckWins: stats ? stats.wins : 0, deckLosses: stats ? stats.losses : 0
+    }];
+
+    // A River Race Duel plays 2-3 games back-to-back, each consuming its
+    // OWN one of the day's 4 real deck-uses (confirmed: a duel is never a
+    // single deck-use no matter how many games it takes -- a day can be,
+    // say, 2 duel games + 2 separate normal battles, using all 4). So each
+    // game is its own numbered slot here just like a normal battle, never
+    // collapsed together. Games belonging to the same duel share one
+    // BATTLE_TIME (the Apps Script writes them together) -- group by that
+    // ONLY to show which game of the duel this is and the running score so
+    // far, never to merge slots.
+    const duelGames = real.filter(r => r.battleTime === b.battleTime);
+    let duelContext = null;
+    if (duelGames.length > 1) {
+      const idx = duelGames.indexOf(b);
+      const upToNow = duelGames.slice(0, idx + 1);
+      duelContext = {
+        gameNum: idx + 1, totalGames: duelGames.length,
+        scoreWins: upToNow.filter(g => g.result === 'win').length,
+        scoreLosses: upToNow.filter(g => g.result === 'loss').length
+      };
+    }
+
+    return {
+      used: true, result: b.result, crownsFor: b.crownsFor, crownsAgainst: b.crownsAgainst,
+      decks, opponentClanName: b.opponentClanName, duelContext, battleTime: b.battleTime
+    };
+  });
+  return { name, dayIdx, hasAnyData: !!entry, slots };
+}
+
+// Real Clash Royale crown icons (blue = ours, red = opponent's) supplied
+// by Dunk -- assets/crowns/{blue,red}.png -- shown next to every crowns
+// display (battle heading, and each individual game's own score within a
+// duel) instead of a generic emoji/hand-drawn glyph.
+function crownIconHtml(color, size) {
+  return `<img class="battle-crown-icon" width="${size}" height="${Math.round(size * 0.75)}" src="assets/crowns/${color}.png" alt="">`;
+}
+
+// Elixir drop, drawn inline rather than shipped as an image: unlike the
+// crowns (real supplied art, assets/crowns/), there's no elixir asset in
+// this repo, and a drop is simple enough that an SVG needs no file, no
+// cache entry, and no onerror fallback chain.
+function elixirIconHtml(size) {
+  return `<svg class="deck-elixir-icon" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M12 2.2c4.6 5.2 7.2 8.7 7.2 12A7.2 7.2 0 0 1 12 21.4a7.2 7.2 0 0 1-7.2-7.2c0-3.3 2.6-6.8 7.2-12z" fill="#c452d6" stroke="#7d1f8c" stroke-width="1.4" stroke-linejoin="round"/>
+    <path d="M9.4 13.6c0-2 1-3.7 2.3-5.3" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="1.5" stroke-linecap="round"/>
+  </svg>`;
+}
+
+// Average elixir cost of one deck, from CARD_ELIXIR (config.js).
+// Averages only over cards with a known cost -- Mirror has no fixed cost
+// at all (see CARD_ELIXIR's comment) and a brand-new card can legitimately
+// be missing until the manifest is updated by hand, and in both cases the
+// other cards' real average is more useful than no number. Returns null
+// only when nothing in the deck is known.
+function calcDeckAvgElixir(cards) {
+  const costs = (cards || [])
+    .map(c => CARD_ELIXIR[c.name])
+    .filter(v => typeof v === 'number');
+  if (!costs.length) return null;
+  return costs.reduce((a, b) => a + b, 0) / costs.length;
+}
+
+// Maps a card's display name to its image filename slug, matching the
+// convention used when the asset files (assets/cards/, .../evo/,
+// .../tower/) were organized: lowercase, periods stripped (so
+// "P.E.K.K.A" -> "pekka", "Mini P.E.K.K.A" -> "mini-pekka"), everything
+// else collapsed to hyphens. Not every one of the 122 official cards has
+// art yet -- see CLAUDE.md for the current gap list -- so this is never
+// trusted blindly; every <img> using it has an onerror fallback below
+// rather than checking a whitelist here.
+function cardImageSlug(name) {
+  return (name || '').toLowerCase().replace(/\./g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+// Renders 8 (or however many) cards as a single scannable row. Each card is
+// { name, special }, special being 'evo' | 'hero' | null (see
+// parseBattleLogSheet(), parse.js). Real card art with a text-name
+// fallback if a given card's image is missing (onerror, not a whitelist,
+// so newly added art just works without a code change).
+//
+// Evolutions: assets/cards/evo/{slug}.png is NOT a small transparent decal
+// meant to sit on top of the base art -- it's a full, standalone alternate
+// card image (own scene, own baked-in frame/border), confirmed by opening
+// one directly. Layering it over the base image (the original approach)
+// showed both images' frames/edges at once, a real visible bug ("card
+// displayed with the evo over the normal card img"). It now REPLACES the
+// base image outright for an evo card, with onerror falling back to the
+// base art and then to the text name, instead of drawing both at once.
+// object-fit:cover (not contain) crops these full-card images to fill the
+// slot -- most carry a lot of decorative padding around the actual
+// character (confirmed by opening several), and contain was rendering the
+// character noticeably smaller than a plain card's.
+function buildDeckCardRow(cards) {
+  const cardsHtml = cards.map(c => {
+    const slug = cardImageSlug(c.name);
+    const primarySrc = c.special === 'evo' ? `assets/cards/evo/${slug}.png` : `assets/cards/${slug}.png`;
+    const baseSrc = `assets/cards/${slug}.png`;
+    // onerror chain: evo art fails -> retry with base art (re-arming
+    // onerror first so a base-art failure too falls through to the text
+    // fallback, not a broken image icon) -> base art also fails -> hide
+    // the <img> and reveal the sibling text-name fallback div.
+    const onerror = c.special === 'evo'
+      ? `onerror="this.onerror=function(){this.style.display='none'; this.nextElementSibling.style.display='flex';}; this.src='${baseSrc}';"`
+      : `onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'"`;
+    // The special-flag badge (EVO/HERO) sits OUTSIDE .deck-card-slot, in
+    // .deck-card-wrap's own padding-top -- .deck-card-slot needs
+    // overflow:hidden to clip the card image to its rounded box, which
+    // was clipping this badge too when it lived inside that box.
+    const specialTag = c.special === 'evo' ? '<span class="deck-card-tag deck-card-tag-evo">EVO</span>'
+      : c.special === 'hero' ? '<span class="deck-card-tag deck-card-tag-hero">HERO</span>' : '';
+    return `<div class="deck-card-wrap">
+      ${specialTag}
+      <div class="deck-card-slot">
+        <img class="deck-card-img${c.special === 'evo' ? ' deck-card-img-cover' : ''}" src="${primarySrc}" alt="${c.name}" ${onerror}>
+        <div class="deck-card-fallback"><span class="deck-card-name">${c.name}</span></div>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="deck-card-row">${cardsHtml}</div>`;
+}
+
+// Render the battle detail modal's inner box from calcBattleDetail()'s
+// output. Structured as ONE card: a header banner for the player+day, and
+// a body holding one row per battle -- each row's own heading (battle
+// number / result / crowns) sits directly on the card body, with just the
+// deck itself inside a separate dark-silver inlay well.
+function buildBattleDetailModal(name, dayIdx) {
+  const d = calcBattleDetail(name, dayIdx);
+
+  // Slots the player genuinely didn't reach that day (e.g. only 3 of 4
+  // real deck-uses happened) are skipped entirely now, not rendered as an
+  // empty "Not used" placeholder bar -- per explicit feedback, a battle
+  // that was never played shouldn't take up space in the popup at all.
+  const usedSlots = d.slots.filter(s => s.used);
+
+  // A REAL per-game duel (s.duelContext -- see calcBattleDetail()) writes
+  // each of its 2-3 games as its OWN slot, sharing one BATTLE_TIME. Group
+  // those consecutive slots together here, for DISPLAY only, so every game
+  // in a duel renders inside ONE shared sunk inlay instead of each getting
+  // its own separate one -- calcBattleDetail()/the slot data itself is
+  // unchanged. A legacy merged-duel row (multiGame but no duelContext,
+  // already a single slot) and every normal battle are untouched: each
+  // still forms its own one-slot group below.
+  const groups = [];
+  usedSlots.forEach((s, i) => {
+    const last = groups[groups.length - 1];
+    if (s.duelContext && last && last.items[0].s.duelContext && last.items[0].s.battleTime === s.battleTime) {
+      last.items.push({ s, i });
+    } else {
+      groups.push({ items: [{ s, i }] });
+    }
+  });
+
+  // Renders ONE slot's own heading (label/result/crowns) + body (opponent
+  // line, legacy note, deck row(s), usage bar) -- identical content/markup
+  // to before this change, just factored out so a grouped duel can nest
+  // several of these inside one shared inlay instead of each getting its
+  // own. The result span always carries an explicit battle-result-{win|
+  // loss|draw} class (see the matching CSS) rather than relying solely on
+  // the ancestor .battle-row's own win/loss/draw class for color -- once a
+  // duel's games are nested inside a shared wrapper whose OWN class is the
+  // duel's FINAL result, a single game's own (possibly different) result
+  // needs to color itself regardless of what the wrapper around it says.
+  function renderSlotParts(s, i) {
+    const resultClass = s.result === 'win' ? 'battle-win' : s.result === 'loss' ? 'battle-loss' : 'battle-draw';
+    const resultLabel = s.result === 'win' ? 'WIN' : s.result === 'loss' ? 'LOSS' : 'DRAW';
+    // s.decks has more than one entry ONLY for a legacy merged-duel row
+    // (recorded before the Apps Script's per-round fix) -- split into
+    // per-chunk "GAME n" sub-rows since there's no real per-chunk result
+    // to show at a top-level heading instead. A real per-game duel row (or
+    // a normal battle) always has exactly one deck here.
+    const multiGame = s.decks.length > 1;
+    // Any slot using more than one deck is a Duel (either a real per-game
+    // duel row via s.duelContext, or a legacy merged row split into
+    // chunks) -- labeled "DUEL" instead of "BATTLE N" with a soft gold
+    // header, so it reads as visibly different from a normal battle.
+    const isDuel = !!s.duelContext || multiGame;
+    // A Duel is decided by GAMES WON out of 3 (first to 2), never by
+    // crowns -- Dunk's own correction after an earlier version showed
+    // total crowns here as if it were the duel score. s.duelContext (a
+    // REAL per-game duel row -- see calcBattleDetail()) carries the
+    // running games-won/lost tally through this specific game, shown
+    // plainly in the row's own LABEL, with no crown icon anywhere near
+    // it. This is separate from the heading's WIN/LOSS + crowns on the
+    // right, which is this ONE game's own real result -- exactly like a
+    // normal battle, per Dunk's explicit ask, and unrelated to the duel's
+    // running score shown in the label.
+    const rowLabel = s.duelContext ? `DUEL ${s.duelContext.scoreWins}-${s.duelContext.scoreLosses}`
+      : isDuel ? 'DUEL' : `Battle ${i + 1}`;
+    const duelLabel = s.duelContext ? ` · Game ${s.duelContext.gameNum}/${s.duelContext.totalGames}` : '';
+    const oppHtml = s.opponentClanName ? `<div class="battle-slot-opp">vs ${s.opponentClanName}${duelLabel}</div>` : '';
+    // multiGame with NO duelContext means this is a legacy merged-duel row
+    // (recorded before the Apps Script's per-round fix) -- the sheet only
+    // ever recorded ONE result/crowns figure for the WHOLE duel, so there
+    // is genuinely no way to know which of these games individually won
+    // or lost, or the real games-won score (a duel is decided by games
+    // won, not crowns, and this row's crowns are a total-across-all-games
+    // figure -- not even reliably the right sign for who actually won).
+    // Say so plainly, and explain why each game's usage bar below can't
+    // show a win/loss color either, instead of leaving both looking
+    // broken with no explanation.
+    const legacyNoteHtml = (multiGame && !s.duelContext)
+      ? `<div class="battle-legacy-note">This duel was recorded before per-game tracking was live for this war -- only one overall result/crowns figure exists for the whole duel (shown above), not a real games-won score, and not attributable to any specific game below. Each deck's usage bar shows usage only, with no win/loss color, for the same reason. New duels will show real per-game data once the current Apps Script (apps-script/war-data-layer.gs) is pasted into the Apps Script editor -- this is a separate manual step from deploying the site.</div>` : '';
+
+    const decksHtml = s.decks.map((deck, gi) => {
+      // All-time win/loss split for THIS specific deck (draws excluded from
+      // this bar on purpose -- a full win/draw/loss breakdown is planned as
+      // a deeper Analyze-tab feature later, this is just a quick at-a-glance
+      // signal). wlTotal 0 (deck's only result so far was a draw) renders an
+      // empty track rather than dividing by zero.
+      const wlTotal = deck.deckWins + deck.deckLosses;
+      const deckWinPct = wlTotal ? (deck.deckWins / wlTotal) * 100 : 0;
+      const deckLossPct = wlTotal ? 100 - deckWinPct : 0;
+      const winPctLabel = wlTotal ? `${Math.round(deckWinPct)}%` : '—';
+      const gameHeading = multiGame
+        ? `<div class="battle-game-heading"><span class="battle-game-label">Game ${gi + 1}</span></div>` : '';
+      return `${gameHeading}
+        ${buildDeckCardRow(deck.cards)}
+        <div class="deck-usage-row">
+          <span class="deck-usage-count">${deck.deckUsage}</span>
+          <div class="deck-usage-bar">
+            <div class="deck-usage-bar-win"  style="width:${deckWinPct}%"></div>
+            <div class="deck-usage-bar-loss" style="width:${deckLossPct}%"></div>
+          </div>
+          <span class="deck-usage-winpct">${winPctLabel}</span>
+        </div>`;
+    }).join('<div style="height:14px"></div>');
+
+    const crownsHtml = `${crownIconHtml('blue', 22)}${s.crownsFor}-${s.crownsAgainst}${crownIconHtml('red', 22)}`;
+    const headingHtml = `<div class="battle-row-heading">
+        <span class="battle-row-num">${rowLabel}</span>
+        <span class="battle-row-result battle-result-${s.result}">${resultLabel} <span class="battle-row-crowns">${crownsHtml}</span></span>
+      </div>`;
+    const bodyHtml = `${oppHtml}${legacyNoteHtml}${decksHtml}`;
+    return { resultClass, isDuel, headingHtml, bodyHtml };
+  }
+
+  const slotsHtml = groups.map(g => {
+    if (g.items.length === 1) {
+      const { s, i } = g.items[0];
+      const p = renderSlotParts(s, i);
+      return `<div class="battle-row ${p.resultClass}${p.isDuel ? ' battle-duel' : ''}">
+        ${p.headingHtml}
+        <div class="battle-deck-inlay">${p.bodyHtml}</div>
+      </div>`;
+    }
+
+    // A real grouped duel (2-3 games sharing one BATTLE_TIME): every
+    // game's own heading + crowns + deck + win/loss bar (renderSlotParts,
+    // unchanged) sits inside ONE shared inlay; the OUTER heading is new --
+    // it shows the duel's FINAL games-won score (never a mid-duel running
+    // score, never crowns -- a duel is decided by games won, not crowns),
+    // taken from the last game's cumulative duelContext tally.
+    const final = g.items[g.items.length - 1].s.duelContext;
+    const finalResult = final.scoreWins > final.scoreLosses ? 'win' : final.scoreLosses > final.scoreWins ? 'loss' : 'draw';
+    const finalLabel = finalResult === 'win' ? 'WIN' : finalResult === 'loss' ? 'LOSS' : 'DRAW';
+    const innerHtml = g.items.map(({ s, i }) => {
+      const p = renderSlotParts(s, i);
+      return `${p.headingHtml}${p.bodyHtml}`;
+    }).join('<div style="height:14px"></div>');
+
+    return `<div class="battle-row battle-duel battle-${finalResult}">
+      <div class="battle-row-heading">
+        <span class="battle-row-num">DUEL ${final.scoreWins}-${final.scoreLosses}</span>
+        <span class="battle-row-result battle-result-${finalResult}">${finalLabel}</span>
+      </div>
+      <div class="battle-deck-inlay">${innerHtml}</div>
+    </div>`;
+  }).join('');
+
+  const emptyStateHtml = !usedSlots.length ? `<div class="battle-modal-empty">No battle data recorded</div>` : '';
+
+  return `<div class="battle-modal-box" onclick="event.stopPropagation()">
+    <div class="battle-modal-header">
+      <span class="battle-modal-title">${d.name} — Day ${dayIdx + 1}</span>
+      <button class="battle-modal-close" onclick="closeBattleDetailModal()">&times;</button>
+    </div>
+    <div class="battle-modal-content">
+      ${emptyStateHtml}
+      <div class="battle-slots">${slotsHtml}</div>
+    </div>
+  </div>`;
+}
+
+function showBattleDetailModal(name, dayIdx) {
+  const overlay = document.getElementById('battle-detail-modal');
+  if (!overlay) return;
+  overlay.innerHTML = buildBattleDetailModal(name, dayIdx);
+  overlay.classList.remove('hidden');
+  syncPageScrollLock(); // main.js -- freeze the page behind the popup
+}
+
+// The modal and the pinned card's highlight are one concept, not two --
+// closing the modal (× button, clicking outside it, clicking the same
+// card again, or clicking empty grid space) always releases the pin too.
+// Safe to call when nothing is open/pinned (e.g. clicking empty space with
+// nothing pinned yet).
+function closeBattleDetailModal() {
+  const overlay = document.getElementById('battle-detail-modal');
+  if (overlay) overlay.classList.add('hidden');
+  syncPageScrollLock(); // main.js -- release the page (no-op if nothing was locked)
+  if (LIVE_PINNED_CARD) {
+    // Same search-match guard as hideCard() in attachLiveCardHighlight() --
+    // don't undo the search box's own highlight just because the pin tied
+    // to it is being released.
+    if (LIVE_PINNED_CARD.dataset.searchMatch !== '1') LIVE_PINNED_CARD.classList.remove('search-match');
+    LIVE_PINNED_CARD = null;
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  DECK HISTORY MODAL — Analysis tab's "Battle Info" button (buildCard(),
+//  tab-analysis.js) opens this: every deck a player has EVER used
+//  (all-time, from DECK_STATS -- the same all-time aggregation
+//  calcBattleDetail() already looks up per-slot for "how has THIS deck
+//  done overall"), each with the same usage count + win/loss-only bar
+//  shown per-slot in the battle detail modal above. Lets a player scroll
+//  back through everything they've played and how it performed, instead
+//  of only ever seeing one specific day's decks. Reuses the same
+//  .battle-modal-box/-header/-content chrome and buildDeckCardRow() for a
+//  consistent look, but is a SEPARATE overlay (#deck-history-modal) with
+//  its own show/close -- unlike battle-detail-modal, this one isn't tied
+//  to a pinned Live-tab card's highlight state, so it needs none of that
+//  bookkeeping.
+// ══════════════════════════════════════════════════════
+
+// Pure calculation: this player's all-time deck list, most-used first
+// (DECK_STATS is already sorted that way -- see parseBattleLogSheet(),
+// parse.js). Zero HTML.
+function calcPlayerDeckHistory(name) {
+  const entry = DECK_STATS[name.toLowerCase()];
+  return { name, decks: entry ? entry.decks : [] };
+}
+
+// Tracks which player's modal is currently open so the sort buttons
+// (setDeckHistorySort(), below) can re-render the SAME modal in place
+// without needing the name threaded back through their own onclick.
+let DECK_HISTORY_NAME = null;
+
+// A 3-button group (like every other multi-way toggle in this app), not a
+// single button that cycles blind through modes -- per explicit feedback,
+// clicking one unknown state at a time with no visibility into the other
+// options was a real, reported usability complaint.
+function setDeckHistorySort(m) {
+  deckHistorySortMode = m;
+  if (DECK_HISTORY_NAME) showDeckHistoryModal(DECK_HISTORY_NAME);
+}
+
+// Pure sort -- doesn't mutate DECK_STATS' own array (which stays
+// usage-sorted as the canonical order calcBattleDetail() also relies on).
+function sortDeckHistoryList(decks, mode) {
+  const arr = decks.slice();
+  if (mode === 'winpct') {
+    return arr.sort((a, b) => {
+      const aTotal = a.wins + a.losses, bTotal = b.wins + b.losses;
+      // A deck with zero decided games (win% undefined) sorts LAST, not
+      // first -- -1 reads below any real 0%-100% win rate.
+      const aPct = aTotal ? a.wins / aTotal : -1;
+      const bPct = bTotal ? b.wins / bTotal : -1;
+      return bPct !== aPct ? bPct - aPct : b.usage - a.usage;
+    });
+  }
+  if (mode === 'active') {
+    // Sorting purely by recency naturally puts a player's current ~4-deck
+    // rotation at the top (their most recently played decks) with
+    // everything else trailing off by last-used date -- no separate
+    // "top 4" rule needed, that's just what this ordering produces.
+    return arr.sort((a, b) => (b.lastUsed || '').localeCompare(a.lastUsed || ''));
+  }
+  return arr.sort((a, b) => b.usage - a.usage); // 'usage' (default)
+}
+
+// Small inline SVG line chart: one point per REAL war-day this deck had
+// at least one decided (non-merged-duel) game, Y = that day's win rate
+// (wins / (wins+losses), draws excluded same as the usage bar elsewhere).
+// A day the deck wasn't used, or was only used in a merged-duel chunk
+// with no attributable result, simply has no dayHistory entry (see
+// parseBattleLogSheet(), parse.js) -- so a training week or a war this
+// deck sat out never shows up as a flat run in the middle of the line,
+// it's just skipped, keeping the trend itself readable. Line/dot color
+// reflects the overall trend (second half of the points vs. the first
+// half): green = improving, red = declining, gold = flat or too little
+// data to tell. Native <title> tooltips per point need no JS hover wiring
+// for a chart this small.
+function buildDeckWinRateGraph(dayHistory) {
+  const points = (dayHistory || [])
+    .filter(d => d.wins + d.losses > 0)
+    .map(d => ({ warId: d.warId, dayIndex: d.dayIndex, ratio: d.wins / (d.wins + d.losses) }));
+  if (!points.length) return '<div class="deck-war-graph-empty">No decided games yet</div>';
+
+  const W = 172, H = 62;
+  const plotL = 26, plotR = W - 6, plotT = 6, plotB = H - 16;
+  const n = points.length;
+  const stepX = n > 1 ? (plotR - plotL) / (n - 1) : 0;
+  const yFor = ratio => plotB - ratio * (plotB - plotT);
+  const coords = points.map((p, i) => ({ ...p, x: plotL + stepX * i, y: yFor(p.ratio) }));
+
+  let trendColor = 'var(--gold)';
+  if (n >= 2) {
+    const mid = Math.floor(n / 2) || 1;
+    const firstAvg = coords.slice(0, mid).reduce((s, p) => s + p.ratio, 0) / mid;
+    const secondAvg = coords.slice(mid).reduce((s, p) => s + p.ratio, 0) / (n - mid);
+    if (secondAvg - firstAvg > 0.05) trendColor = 'var(--green)';
+    else if (firstAvg - secondAvg > 0.05) trendColor = 'var(--red)';
+  }
+
+  const linePath = coords.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const dots = coords.map(p =>
+    `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.6" fill="${trendColor}"><title>War ${p.warId} Day ${p.dayIndex}: ${Math.round(p.ratio * 100)}% win rate</title></circle>`
+  ).join('');
+  const firstLbl = `W${coords[0].warId}D${coords[0].dayIndex}`;
+  const lastLbl = `W${coords[n - 1].warId}D${coords[n - 1].dayIndex}`;
+
+  return `<svg class="deck-war-graph" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+    <text x="1" y="${plotT + 5}" class="deck-graph-axis-lbl">100%</text>
+    <text x="1" y="${plotB + 2}" class="deck-graph-axis-lbl">0%</text>
+    <line x1="${plotL}" y1="${plotB.toFixed(1)}" x2="${plotR}" y2="${plotB.toFixed(1)}" stroke="rgba(255,255,255,0.22)" stroke-width="1"/>
+    <line x1="${plotL}" y1="${((plotT + plotB) / 2).toFixed(1)}" x2="${plotR}" y2="${((plotT + plotB) / 2).toFixed(1)}" stroke="rgba(255,255,255,0.1)" stroke-width="1" stroke-dasharray="2,2"/>
+    ${n > 1 ? `<path d="${linePath}" fill="none" stroke="${trendColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` : ''}
+    ${dots}
+    <text x="${plotL}" y="${H - 2}" class="deck-graph-x-lbl" text-anchor="start">${firstLbl}</text>
+    ${n > 1 ? `<text x="${plotR}" y="${H - 2}" class="deck-graph-x-lbl" text-anchor="end">${lastLbl}</text>` : ''}
+  </svg>`;
+}
+
+function buildDeckHistoryModal(name) {
+  const d = calcPlayerDeckHistory(name);
+  DECK_HISTORY_NAME = name;
+  const sortedDecks = sortDeckHistoryList(d.decks, deckHistorySortMode);
+
+  const rowsHtml = sortedDecks.map((deck, i) => {
+    // Same win/loss-only bar as a per-slot deck in the battle detail
+    // modal above (draws deliberately excluded there too -- see that
+    // modal's own comment; this is the same all-time number, not a
+    // different metric). A deck whose only uses were merged-duel chunks
+    // (see parseBattleLogSheet()) never has any wins/losses recorded at
+    // all -- 'none' (grey), not 'draw' (amber), since it isn't actually a
+    // tied record, just an undecided one.
+    const wlTotal = deck.wins + deck.losses;
+    const winPct = wlTotal ? (deck.wins / wlTotal) * 100 : 0;
+    const lossPct = wlTotal ? 100 - winPct : 0;
+    const winPctLabel = wlTotal ? `${Math.round(winPct)}%` : '—';
+    const recordResult = !wlTotal ? 'none' : deck.wins > deck.losses ? 'win' : deck.losses > deck.wins ? 'loss' : 'draw';
+    const recordLabel = wlTotal ? `${deck.wins}-${deck.losses}` : '—';
+    // Split rather than one combined average -- crowns won and crowns
+    // lost tell a different story (a deck that wins by a lot vs. one that
+    // wins narrowly but also concedes a lot both average out the same in
+    // a single blended number).
+    const avgCrownsWonLabel  = deck.crownedGames ? (deck.crownsFor / deck.crownedGames).toFixed(1) : '—';
+    const avgCrownsLostLabel = deck.crownedGames ? (deck.crownsAgainst / deck.crownedGames).toFixed(1) : '—';
+    // Deck composition, not battle history -- so unlike every other stat
+    // in this row it's always available, even for a deck whose only games
+    // were legacy merged-duel chunks with no attributable result.
+    const avgElixir = calcDeckAvgElixir(deck.cards);
+    const avgElixirLabel = avgElixir !== null ? avgElixir.toFixed(1) : '—';
+
+    // usage can exceed wins+losses+draws whenever some of this deck's
+    // uses came from a legacy merged-duel row (see parseBattleLogSheet())
+    // -- those bump usage but have no attributable individual result.
+    // Same "clarify, don't hide" precedent as the battle detail modal's
+    // own .battle-legacy-note for the identical underlying limitation.
+    const unattributed = deck.usage - (deck.wins + deck.losses + deck.draws);
+    const unattributedNoteHtml = unattributed > 0
+      ? `<div class="battle-legacy-note">${unattributed} of ${deck.usage} use${deck.usage === 1 ? '' : 's'} come from an older duel recording that didn't track individual game results, so the record above and the usage count below don't fully add up.</div>`
+      : '';
+
+    return `<div class="battle-row">
+      <div class="battle-row-heading">
+        <span class="battle-row-num">DECK ${i + 1}</span>
+        <span class="battle-row-result battle-result-${recordResult}">${recordLabel}</span>
+      </div>
+      <div class="battle-deck-inlay">
+        <div class="deck-history-row">
+          <div class="deck-history-main">
+            ${buildDeckCardRow(deck.cards)}
+            ${unattributedNoteHtml}
+            <div class="deck-usage-row">
+              <span class="deck-usage-count">${deck.usage}</span>
+              <div class="deck-usage-bar">
+                <div class="deck-usage-bar-win"  style="width:${winPct}%"></div>
+                <div class="deck-usage-bar-loss" style="width:${lossPct}%"></div>
+              </div>
+              <span class="deck-usage-winpct">${winPctLabel}</span>
+            </div>
+          </div>
+          <div class="deck-history-side">
+            <div class="deck-avg-crowns"><span class="deck-avg-crowns-row">${crownIconHtml('blue', 13)}<span class="deck-avg-crowns-val deck-avg-crowns-won">${avgCrownsWonLabel}</span></span><span class="deck-avg-crowns-lbl">Avg Won</span></div>
+            <div class="deck-avg-crowns"><span class="deck-avg-crowns-row">${crownIconHtml('red', 13)}<span class="deck-avg-crowns-val deck-avg-crowns-lost">${avgCrownsLostLabel}</span></span><span class="deck-avg-crowns-lbl">Avg Lost</span></div>
+            <div class="deck-avg-crowns"><span class="deck-avg-crowns-row">${elixirIconHtml(13)}<span class="deck-avg-crowns-val deck-avg-elixir-val">${avgElixirLabel}</span></span><span class="deck-avg-crowns-lbl">Avg Elixir</span></div>
+            <div class="deck-war-graph-wrap">
+              <div class="deck-war-graph-lbl">Win Rate Trend</div>
+              ${buildDeckWinRateGraph(deck.dayHistory)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const sortBtn = (m, label) =>
+    `<button class="btn${deckHistorySortMode === m ? ' active' : ''}" onclick="setDeckHistorySort('${m}')">${label}</button>`;
+  const controlsHtml = d.decks.length ? `<div class="deck-history-controls">
+    <span class="deck-history-sort-lbl">Sort:</span>
+    <div class="btn-group">
+      ${sortBtn('winpct', 'Win %')}
+      ${sortBtn('usage', 'Most Used')}
+      ${sortBtn('active', 'Active')}
+    </div>
+  </div>` : '';
+
+  const emptyStateHtml = !d.decks.length ? `<div class="battle-modal-empty">No battle data recorded</div>` : '';
+
+  return `<div class="battle-modal-box" onclick="event.stopPropagation()">
+    <div class="battle-modal-header">
+      <span class="battle-modal-title">${d.name} — Deck History</span>
+      <button class="battle-modal-close" onclick="closeDeckHistoryModal()">&times;</button>
+    </div>
+    <div class="battle-modal-content">
+      ${controlsHtml}
+      ${emptyStateHtml}
+      <div class="battle-slots">${rowsHtml}</div>
+    </div>
+  </div>`;
+}
+
+function showDeckHistoryModal(name) {
+  const overlay = document.getElementById('deck-history-modal');
+  if (!overlay) return;
+  overlay.innerHTML = buildDeckHistoryModal(name);
+  overlay.classList.remove('hidden');
+  syncPageScrollLock(); // main.js -- freeze the page behind the popup
+}
+
+function closeDeckHistoryModal() {
+  const overlay = document.getElementById('deck-history-modal');
+  if (overlay) overlay.classList.add('hidden');
+  syncPageScrollLock();
+  DECK_HISTORY_NAME = null;
+}
+
+// ══════════════════════════════════════════════════════
+//  CARD ART DEBUG POPUP — on-demand visual audit tool (Live tab button),
+//  not the always-on debug grid removed in an earlier patch. Shows every
+//  official card art/tag exactly as it renders in a real deck popup
+//  (reuses buildDeckCardRow()), labeled with its name + special flag, so
+//  art can be spot-checked against name/tag whenever a new asset drop
+//  needs verifying -- without leaving a permanent debug grid in the
+//  Analysis tab or per-card labels in every real popup.
+// ══════════════════════════════════════════════════════
+
+// One labeled entry: the card exactly as buildDeckCardRow() renders it in
+// a real popup (same art, same fallback chain, same EVO/HERO badge), plus
+// a permanent name label underneath (which real popups deliberately do
+// NOT have -- see buildDeckCardRow()'s own comment).
+function buildCardDebugEntry(name, special) {
+  const tagText = special === 'evo' ? ' (EVO)' : special === 'hero' ? ' (HERO)' : '';
+  return `<div class="card-debug-entry">
+    ${buildDeckCardRow([{ name, special }])}
+    <div class="card-debug-label">${name}${tagText}</div>
+  </div>`;
+}
+
+// Evo-capable cards get TWO entries (regular art + evo art) since the
+// real popup now shows one OR the other depending on that specific
+// battle (see buildDeckCardRow()'s "evo replaces base" comment) -- seeing
+// both side by side is the point of this tool. Everything else (plain
+// cards, champions) only has the one form.
+function buildCardDebugGrid() {
+  const entries = CARD_DEBUG_MANIFEST.flatMap(c => c.special === 'evo'
+    ? [buildCardDebugEntry(c.name, null), buildCardDebugEntry(c.name, 'evo')]
+    : [buildCardDebugEntry(c.name, c.special)]);
+  return `<div class="card-debug-grid">${entries.join('')}</div>`;
+}
+
+function showCardDebugModal() {
+  const overlay = document.getElementById('card-debug-modal');
+  if (!overlay) return;
+  const evoCount = CARD_DEBUG_MANIFEST.filter(c => c.special === 'evo').length;
+  overlay.innerHTML = `<div class="battle-modal-box" onclick="event.stopPropagation()">
+    <div class="battle-modal-header">
+      <span class="battle-modal-title">Card Art Debug — ${CARD_DEBUG_MANIFEST.length} cards, ${evoCount} with evo art shown separately</span>
+      <button class="battle-modal-close" onclick="closeCardDebugModal()">&times;</button>
+    </div>
+    <div class="battle-modal-content">${buildCardDebugGrid()}</div>
+  </div>`;
+  overlay.classList.remove('hidden');
+  syncPageScrollLock(); // main.js -- freeze the page behind the popup
+}
+
+function closeCardDebugModal() {
+  const overlay = document.getElementById('card-debug-modal');
+  if (overlay) overlay.classList.add('hidden');
+  syncPageScrollLock();
 }
 

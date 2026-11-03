@@ -19,12 +19,17 @@
 function setLoader(pct, msg) {
   document.getElementById('loader-bar').style.width = pct + '%';
   document.getElementById('loader-status').textContent = msg;
+  updateLoaderCurtain(pct); // main.js -- sweeps the curtain to match real progress
 }
 
 // Fade out the loader overlay and reveal the app
 function hideLoader() {
   document.getElementById('loader').classList.add('hidden');
   document.getElementById('app').style.opacity = '1';
+  // #loader's opacity transition (index.html) is 0.5s -- wait for it to
+  // finish before showing the offline modal, so it appears once the app
+  // is actually visible instead of popping in over the fading loader.
+  if (!navigator.onLine) setTimeout(showOfflineModal, 500);
 }
 
 // ══════════════════════════════════════════════════════
@@ -205,21 +210,55 @@ function getOurMostRecentStandings() {
 // joiner). Falls back gracefully when snapshots are sparse.
 function buildLiveFromSnapshots(data) {
   if (!data || data.length < 2) return {};
-  let pending = -Infinity;
   const rows = [];
+  const idsWithData = new Set();
   for (let r = 1; r < data.length; r++) {
     const row = data[r];
     if (!row || row[1] === '' || row[1] == null) continue;
     const warId = parseInt(row[1]);
     if (isNaN(warId)) continue;
     rows.push(row);
-    if (warId > pending) pending = warId;
+    // Real activity check for picking which war id to use, below.
+    if ((parseFloat(row[4]) || 0) > 0 || (parseInt(row[5]) || 0) > 0) idsWithData.add(warId);
   }
-  if (!isFinite(pending)) return {};
+  if (!rows.length) return {};
+  // Use the highest war id that actually has real snapshot data, not just
+  // the highest id present. The Apps Script starts writing snapshot rows
+  // for the NEXT war's id the moment its training period begins -- before
+  // any battle has happened, so every value is 0 -- so blindly taking the
+  // max id can land on an all-zero "hasn't started yet" war and hide the
+  // last real completed war's data during exactly the training-day gap
+  // this fallback exists to cover.
+  const candidateIds = idsWithData.size ? [...idsWithData] : rows.map(row => parseInt(row[1]));
+  const pending = Math.max(...candidateIds);
   const live = rows.filter(row => parseInt(row[1]) === pending);
   if (!live.length) return {};
 
-  const periods = Array.from(new Set(live.map(row => parseInt(row[8])).filter(p => !isNaN(p)))).sort((a, b) => a - b);
+  // Exclude periods that are a "the previous war just ended" transition
+  // blip, not a real war day. The Apps Script's own warActive check
+  // (recordLiveSnapshot_) can be briefly fooled right when a war ends: the
+  // live API sometimes still reports the OLD war's periodType/periodIndex
+  // for one or two polls before it catches up to reporting "training",
+  // so a couple of leftover snapshot rows can get written under the NEW
+  // pending war's id with a period number that's numerically unrelated to
+  // (and can sort after) the real Day 1/Day 2/etc. periods, corrupting the
+  // day sequence. A period where every single row is 0 fame/0 decks AND
+  // has only a handful of distinct snapshot timestamps is that blip, not
+  // a genuine day -- a real day accumulates many snapshot cycles across
+  // its ~24h span well before the war reaches its next day, so this can
+  // never mistake a real, just-started day for one of these artifacts.
+  const periodStats = {};
+  for (const row of live) {
+    const period = parseInt(row[8]);
+    if (isNaN(period)) continue;
+    if (!periodStats[period]) periodStats[period] = { hasRealData: false, timestamps: new Set() };
+    periodStats[period].timestamps.add(String(row[0] || ''));
+    if ((parseFloat(row[4]) || 0) > 0 || (parseInt(row[5]) || 0) > 0) periodStats[period].hasRealData = true;
+  }
+  const periods = Object.keys(periodStats)
+    .map(Number)
+    .filter(p => periodStats[p].hasRealData || periodStats[p].timestamps.size >= 5)
+    .sort((a, b) => a - b);
   const dayOfPeriod = {};
   periods.forEach((p, i) => { dayOfPeriod[p] = Math.min(i, WAR_DAYS - 1); });
 
@@ -323,6 +362,195 @@ function buildLiveFromSnapshots(data) {
   return result;
 }
 
+// ── Parse BATTLE_LOG → per-player day detail (current war) + all-time deck stats ──
+// Columns: WAR_ID | PLAYER_TAG | PLAYER_NAME | DAY_INDEX | BATTLE_TIME |
+//          BATTLE_TYPE | RESULT | CROWNS_FOR | CROWNS_AGAINST | DECK |
+//          OPPONENT_CLAN_TAG | OPPONENT_CLAN_NAME
+// Unlike SNAPSHOTS, this sheet is never pruned -- it holds every war ever
+// recorded since this feature went live, specifically so deck performance
+// can be tracked long-term. Returns TWO views over the same rows in one
+// pass:
+//   - byPlayerDay: scoped to just the CURRENT war (highest WAR_ID present --
+//     same "pick the max id with real data" trick buildLiveFromSnapshots
+//     uses for SNAPSHOTS; the Apps Script always writes both sheets under
+//     the identical pendingWarId, so this stays aligned with whatever war
+//     the Live tab is showing without cross-referencing the two). Powers
+//     the per-day battle breakdown.
+//   - byPlayerDeck: spans EVERY war recorded, grouped by unique deck
+//     composition (card set, order-independent) per player. Powers the
+//     aggregate Usage/Wins/Draws/Losses view -- deliberately not scoped to
+//     "this war" since the whole point of never pruning this sheet is
+//     long-term deck performance, and this should keep growing richer as
+//     more wars accumulate rather than needing rework later.
+// BASELINE_TYPE marker rows (the Apps Script's own no-backfill bookkeeping,
+// DAY_INDEX 0) are real rows in the sheet but never real battles, so
+// they're dropped from both views.
+// River Race Duels play 2-3 games back-to-back, each consuming its OWN one
+// of a player's 4 daily deck-uses (confirmed: a duel is never a single
+// deck-use no matter how many games it takes). The Apps Script writes one
+// row per game (sharing the same BATTLE_TIME) going forward, so each game
+// is pushed as its own entry below, same as any normal battle. Rows
+// recorded before that fix still have the whole duel merged into ONE row
+// with a 16/24-card DECK cell (a real, confirmed Supercell API quirk on
+// the old per-duel-not-per-game fetch) -- both views handle that legacy
+// shape too by splitting it into 8-card chunks.
+function parseBattleLogSheet(data) {
+  if (!data || data.length < 2) return { byPlayerDay: {}, byPlayerDeck: {} };
+  const rows = [];
+  for (let r = 1; r < data.length; r++) {
+    const row = data[r];
+    if (!row || row[0] === '' || row[0] == null) continue;
+    const warId = parseInt(row[0]);
+    if (isNaN(warId)) continue;
+    rows.push({ warId, row });
+  }
+  if (!rows.length) return { byPlayerDay: {}, byPlayerDeck: {} };
+  const maxWarId = Math.max(...rows.map(r => r.warId));
+
+  const byPlayerDay = {};
+  const byPlayerDeck = {};
+  for (const { warId, row } of rows) {
+    const battleType = row[5] || '';
+    if (battleType === 'baseline') continue; // marker row, not a real battle
+
+    const name = cleanName(row[2]);
+    const key  = name.toLowerCase();
+    // DECK cells look like "Skeletons:evo|Hunter|Royal Ghost:hero|..." --
+    // ":evo"/":hero" is only present on a card actually equipped that way
+    // in THIS battle (see the Apps Script's own comment on why that's not
+    // the same as merely being evolution/champion-CAPABLE as a card).
+    const deckStr = row[9] || '';
+    const deck = deckStr ? deckStr.split('|').map(token => {
+      const [cardName, special] = token.split(':');
+      return { name: cardName, special: special || null };
+    }) : [];
+    const result = row[6] || '';
+    // Parsed once, reused by both the current-war-only byPlayerDay block
+    // below AND the all-time byPlayerDeck aggregation further down --
+    // DAY_INDEX is a real column on every row, not just the current war's,
+    // so the deck-history graph can plot real war-days from any war
+    // BATTLE_LOG has ever recorded, not only the most recent one.
+    const dayIndex = parseInt(row[3]);
+    const hasValidDay = !isNaN(dayIndex) && dayIndex >= 1 && dayIndex <= WAR_DAYS;
+
+    if (warId === maxWarId) {
+      if (hasValidDay) {
+        if (!byPlayerDay[key]) byPlayerDay[key] = { name, days: Array.from({ length: WAR_DAYS }, () => []) };
+        if (name) byPlayerDay[key].name = name;
+        // Each row is its OWN real deck-use/battle slot -- a River Race
+        // Duel does NOT count as a single deck-use no matter how many
+        // games it takes (confirmed: a player's 4 daily deck-uses can
+        // split as e.g. 2 duel games + 2 normal battles, all 4 used).
+        // Rows belonging to the same duel share one BATTLE_TIME (the Apps
+        // Script writes them together) -- calcBattleDetail() (tab-live.js)
+        // uses that to show "game N of the duel" context, but never to
+        // collapse them into fewer slots than were actually played.
+        byPlayerDay[key].days[dayIndex - 1].push({
+          battleTime: row[4] || '',
+          battleType, result,
+          crownsFor: parseInt(row[7]) || 0,
+          crownsAgainst: parseInt(row[8]) || 0,
+          deck,
+          opponentClanName: cleanName(row[11])
+        });
+      }
+    }
+
+    // River Race Duels ("riverRaceDuel") are logged by Supercell as ONE
+    // battle-log entry covering all 2-3 games of the duel, but the API
+    // concatenates every game's 8-card deck into a single flat cards list
+    // instead of returning them per-game (confirmed against a live duel
+    // entry -- a real API quirk, not a parsing bug here). Split back into
+    // individual 8-card decks so each one is credited as its own deck
+    // rather than one bogus 16/24-card "deck" that will never match a
+    // real composition again. The overall result/crowns are for the whole
+    // duel, not attributable to any one game, so merged-duel decks count
+    // toward usage only -- never wins/draws/losses.
+    const isMergedDuel = deck.length > 8 && deck.length % 8 === 0;
+    const deckChunks = [];
+    for (let c = 0; c < deck.length; c += 8) deckChunks.push(deck.slice(c, c + 8));
+    for (const chunk of deckChunks) {
+      if (!chunk.length) continue;
+      // Canonical, order-independent identity for "the same deck" -- card
+      // NAMES only (Supercell doesn't guarantee a stable card order per
+      // battle), deliberately ignoring which slot was evolved. Which card
+      // you choose to evolve is a real strategic choice, but treating
+      // every evo variant as a genuinely different "deck" would fragment
+      // usage/win-loss stats across near-duplicates instead of tracking
+      // the actual 8-card composition's performance as a whole.
+      const deckKey = chunk.map(c2 => c2.name).sort().join('|');
+      if (!byPlayerDeck[key]) byPlayerDeck[key] = { name, decks: {} };
+      if (name) byPlayerDeck[key].name = name;
+      const decks = byPlayerDeck[key].decks;
+      if (!decks[deckKey]) {
+        decks[deckKey] = {
+          cards: chunk, usage: 0, wins: 0, draws: 0, losses: 0,
+          // crownsFor/crownsAgainst/crownedGames: same "merged rows aren't
+          // attributable" rule as wins/draws/losses above -- a merged-duel
+          // row's crowns are a duel-WIDE total, not this specific chunk's
+          // own result, so only real single-game rows (a normal battle, or
+          // a REAL per-game duel row) count toward either average.
+          crownsFor: 0, crownsAgainst: 0, crownedGames: 0,
+          // lastUsed: latest battleTime this exact deck was played, ACROSS
+          // every usage including merged-duel chunks -- unlike wins/losses,
+          // "was this deck played recently" is still a real, known fact
+          // even for a chunk whose individual result isn't attributable.
+          // Used for the deck history modal's "Active" sort mode.
+          lastUsed: '',
+          // byDay: per-real-war-day {warId, dayIndex, wins, draws, losses,
+          // usage} -- powers the deck history modal's win-rate-over-time
+          // graph, keyed by "warId_dayIndex" so it can span every war
+          // BATTLE_LOG has ever recorded, not just the current one.
+          // Flattened to a chronologically-sorted array (dayHistory) once
+          // every row's been seen, below -- days the deck wasn't used
+          // simply never get an entry, so the graph naturally skips gaps
+          // (a training week, a war with no duel, etc.) instead of the
+          // trend line flattening across them.
+          byDay: {}
+        };
+      }
+      const d = decks[deckKey];
+      d.usage++;
+      if (row[4] && row[4] > d.lastUsed) d.lastUsed = row[4];
+      let dayEntry = null;
+      if (hasValidDay) {
+        const dayKey = warId + '_' + dayIndex;
+        if (!d.byDay[dayKey]) d.byDay[dayKey] = { warId, dayIndex, wins: 0, draws: 0, losses: 0, usage: 0 };
+        dayEntry = d.byDay[dayKey];
+        dayEntry.usage++;
+      }
+      if (!isMergedDuel) {
+        if (result === 'win') { d.wins++; if (dayEntry) dayEntry.wins++; }
+        else if (result === 'loss') { d.losses++; if (dayEntry) dayEntry.losses++; }
+        else if (result === 'draw') { d.draws++; if (dayEntry) dayEntry.draws++; }
+        const crownsFor = parseInt(row[7]);
+        const crownsAgainst = parseInt(row[8]);
+        if (!isNaN(crownsFor) && !isNaN(crownsAgainst)) {
+          d.crownsFor += crownsFor; d.crownsAgainst += crownsAgainst; d.crownedGames++;
+        }
+      }
+    }
+  }
+
+  // Oldest-first within each day, matching real deck-slot order.
+  for (const key in byPlayerDay) {
+    byPlayerDay[key].days.forEach(day => day.sort((a, b) => a.battleTime.localeCompare(b.battleTime)));
+  }
+  // Flatten each player's deck map to an array, most-used first, and each
+  // deck's byDay map to a chronologically-sorted array (dayHistory) for
+  // the win-rate-over-time graph.
+  for (const key in byPlayerDeck) {
+    const decks = Object.values(byPlayerDeck[key].decks);
+    decks.forEach(d => {
+      d.dayHistory = Object.values(d.byDay).sort((a, b) => a.warId - b.warId || a.dayIndex - b.dayIndex);
+      delete d.byDay;
+    });
+    byPlayerDeck[key].decks = decks.sort((a, b) => b.usage - a.usage);
+  }
+
+  return { byPlayerDay, byPlayerDeck };
+}
+
 // ── Append a live in-progress war column from the CR API (LIVE_DATA) ──────
 // Mirrors the old WAR_N_LIVE column: always added when a war is active; the
 // "include live" toggle controls visibility via effectiveWars() filtering isLive.
@@ -373,6 +601,43 @@ async function fetchClanData() {
   const members = membersResp.ok ? await membersResp.json() : null;
   const race    = raceResp.ok    ? await raceResp.json()    : null;
   return { members, race };
+}
+
+// Clan war-trophy rank, US/home-country and world -- powers the two
+// ranking header banners (replaced the old Total Wars/Active/Best Avg/Clan
+// Avg banners, which moved to the Data tab's clan summary row instead).
+// Cached in localStorage for 24h: each rankings list is a ~200KB JSON array
+// of ~999 clans that only meaningfully changes about once a day, so
+// refetching it on every single page load/refresh would be wasteful.
+async function fetchClanRankings() {
+  const CACHE_KEY = 'uc-rank-cache';
+  const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+  try {
+    const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+    if (cached && (Date.now() - cached.ts) < CACHE_TTL_MS) return cached.data;
+  } catch(e) {}
+
+  const tag = encodeURIComponent('#' + CLAN_TAG);
+  const clanResp = await fetch(`${CR_PROXY}/clans/${tag}`);
+  if (!clanResp.ok) return { usRank: null, worldRank: null };
+  const clan = await clanResp.json();
+  const homeLocationId = clan?.location?.id;
+
+  const findRank = json => {
+    const entry = json?.items?.find(c => c.tag === ('#' + CLAN_TAG));
+    return entry ? entry.rank : null;
+  };
+
+  const [homeResp, worldResp] = await Promise.all([
+    homeLocationId ? fetch(`${CR_PROXY}/locations/${homeLocationId}/rankings/clanwars`) : Promise.resolve(null),
+    fetch(`${CR_PROXY}/locations/${WORLD_LOCATION_ID}/rankings/clanwars`)
+  ]);
+  const homeJson  = homeResp?.ok  ? await homeResp.json()  : null;
+  const worldJson = worldResp?.ok ? await worldResp.json() : null;
+
+  const data = { usRank: homeJson ? findRank(homeJson) : null, worldRank: findRank(worldJson) };
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch(e) {}
+  return data;
 }
 
 // Convert the CR API members list into a { lowercaseName → displayRole } map.
@@ -427,15 +692,72 @@ function getOurRank() {
 }
 
 // ══════════════════════════════════════════════════════
+//  CARD ART PREFETCH
+//  Warms the service worker's cache for every card-art image up front,
+//  once, shortly after the app finishes its own critical load -- so by
+//  the time a user opens their first battle-detail deck popup (Live tab),
+//  every image it needs is already cached instead of being fetched cold
+//  at that moment. service-worker.js's cacheFirst() handler already
+//  caches assets/cards/* the first time each is requested; this just
+//  moves "the first time" earlier, off the critical path, rather than
+//  changing HOW caching works. A card/evo image already cached from a
+//  prior visit resolves instantly here (cacheFirst checks the cache
+//  before ever touching the network), so this is cheap on repeat visits.
+// ══════════════════════════════════════════════════════
+let cardArtPrefetched = false;
+function prefetchCardArt() {
+  if (cardArtPrefetched) return; // once per page load is enough -- CACHE_NAME only changes on a real deploy
+  cardArtPrefetched = true;
+
+  const urls = ALL_CARD_SLUGS.map(s => `assets/cards/${s}.png`)
+    .concat(EVO_CARD_SLUGS.map(s => `assets/cards/evo/${s}.png`))
+    .concat(['assets/crowns/blue.png', 'assets/crowns/red.png']);
+
+  // Fetched in small sequential batches, not all ~150 at once -- this is
+  // pure background prefetch with nothing waiting on it, so there's no
+  // reason to compete for a mobile connection's limited concurrent
+  // connections against anything the user is actually doing right now.
+  // Any single image failing (offline mid-prefetch, one bad file) is
+  // swallowed and simply skipped -- this is best-effort warmup, never a
+  // blocking or required step.
+  const BATCH_SIZE = 8;
+  let i = 0;
+  function nextBatch() {
+    if (i >= urls.length) return;
+    const batch = urls.slice(i, i + BATCH_SIZE);
+    i += BATCH_SIZE;
+    Promise.allSettled(batch.map(u => fetch(u))).then(() => {
+      if (i < urls.length) setTimeout(nextBatch, 150);
+    });
+  }
+  nextBatch();
+}
+
+// Runs prefetchCardArt() once the browser is idle (or after a fallback
+// delay if requestIdleCallback isn't supported), so it never competes
+// with the initial data fetch/render for bandwidth or main-thread time.
+function scheduleCardArtPrefetch() {
+  if ('requestIdleCallback' in window) requestIdleCallback(prefetchCardArt, { timeout: 5000 });
+  else setTimeout(prefetchCardArt, 2000);
+}
+
+// ══════════════════════════════════════════════════════
 //  LOAD
 // ══════════════════════════════════════════════════════
 async function loadAll(showLoader = true) {
+  // Tracks whether this call actually pulled fresh data, so lastDataUpdate
+  // only advances on a genuine fetch — not on a service-worker cache
+  // fallback served while offline (see the two try blocks below).
+  let sheetFetchOk = false;
+  let apiFetchOk   = false;
+
   // 1. Sheets (v2 long-format schema: WARS / WAR_PLAYERS / STANDINGS / SNAPSHOTS)
   try {
     setLoader(20, 'FETCHING WAR RECORDS...');
-    const [warsCSV, warPlayersCSV, standingsCSV, snapshotsCSV, swappersCSV] = await Promise.all([
+    const [warsCSV, warPlayersCSV, standingsCSV, snapshotsCSV, swappersCSV, battleLogCSV] = await Promise.all([
       fetchCSV(WARS_URL), fetchCSV(WAR_PLAYERS_URL), fetchCSV(STANDINGS_URL), fetchCSV(SNAPSHOTS_URL),
-      fetchCSV(SWAPPERS_URL).catch(() => null)  // graceful — tab may not exist yet
+      fetchCSV(SWAPPERS_URL).catch(() => null),  // graceful — tab may not exist yet
+      fetchCSV(BATTLE_LOG_URL).catch(() => null) // graceful — same reason, newer sheet
     ]);
     if (!warsCSV) throw new Error('WARS sheet returned no data');
     const warsList = parseWarsSheet(warsCSV);
@@ -444,6 +766,9 @@ async function loadAll(showLoader = true) {
     PLAYERS = hist.players;
     LIVE_SHEET_DATA = snapshotsCSV ? buildLiveFromSnapshots(snapshotsCSV) : {};
     WAR_STANDINGS   = standingsCSV ? parseStandingsSheet(standingsCSV) : {};
+    const battleLogParsed = battleLogCSV ? parseBattleLogSheet(battleLogCSV) : { byPlayerDay: {}, byPlayerDeck: {} };
+    BATTLE_LOG  = battleLogParsed.byPlayerDay;
+    DECK_STATS  = battleLogParsed.byPlayerDeck;
     // Parse swapper overrides — one player name per row, first column
     SWAPPER_NAMES = new Set();
     if (swappersCSV && swappersCSV.length > 1) {
@@ -456,6 +781,7 @@ async function loadAll(showLoader = true) {
     ALL_SCORES_FLAT.length = 0;
     PLAYERS.forEach(p => p.scores.forEach(s => { if (s !== null && s > 0) ALL_SCORES_FLAT.push(s); }));
 
+    sheetFetchOk = true;
     document.getElementById('st-sheet').className = 's-ok';
     document.getElementById('st-sheet').textContent = `${WARS.length} wars — ${PLAYERS.length} players`;
   } catch(e) {
@@ -485,6 +811,7 @@ async function loadAll(showLoader = true) {
       if (SWAPPER_NAMES.has(key)) p.pos = 'Swapper';
     }
 
+    apiFetchOk = true;
     const roleCount = Object.keys(LIVE_ROLES).length;
     const fameCount = Object.keys(LIVE_DATA).length;
     document.getElementById('st-api').className = 's-ok';
@@ -495,6 +822,28 @@ async function loadAll(showLoader = true) {
     document.getElementById('st-api').className = 's-err';
     document.getElementById('st-api').textContent = 'CR API unavailable';
     console.warn('CR API:', e);
+  }
+
+  // navigator.onLine is false the moment the device has no active network
+  // interface at all (airplane mode, wifi+cell both off) -- exactly the
+  // offline case that must NOT advance the timestamp. It can still read true
+  // on a connected-but-no-internet network, but that's not the scenario here:
+  // without it, a networkFirst() fetch served from the service-worker's cache
+  // fallback resolves as a normal successful Response with no exception, so
+  // sheetFetchOk/apiFetchOk alone can't tell "fresh network data" apart from
+  // "SW quietly handed back what it cached last time".
+  if (navigator.onLine && (sheetFetchOk || apiFetchOk)) {
+    lastDataUpdate = new Date();
+  }
+
+  // 3. Clan war-trophy rankings (US/home-country + world) -- own try/catch,
+  // never blocks the rest of the app if the rankings lists are slow/down.
+  setLoader(80, 'FETCHING CLAN RANKINGS...');
+  try {
+    CLAN_RANKINGS = await fetchClanRankings();
+  } catch(e) {
+    CLAN_RANKINGS = { usRank: null, worldRank: null };
+    console.warn('Clan rankings:', e);
   }
 
   setLoader(90, 'RENDERING...');
@@ -514,5 +863,6 @@ async function loadAll(showLoader = true) {
   }
   setLoader(100, 'READY');
   if (showLoader) setTimeout(hideLoader, 400);
+  scheduleCardArtPrefetch();
 }
 

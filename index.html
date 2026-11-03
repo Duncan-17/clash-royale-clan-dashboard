@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>United Clash — War Command</title>
+<!-- Chunk 6 (PWA installability, no service worker yet): manifest +
+     home-screen icons. iOS ignores manifest icons for Add to Home
+     Screen, so apple-touch-icon is required separately; theme-color
+     tints the mobile browser's own UI chrome (status bar/tab bar). -->
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<meta name="theme-color" content="#f0b429">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=Lilita+One&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 /* ═══════════════════════════════════════════════════════════
@@ -103,7 +110,41 @@ body.theme-light .live-day-counter,
 body.theme-light .g-section-hdr,
 body.theme-light .graphic-placeholder { font-family: 'Lilita One', system-ui, sans-serif; letter-spacing: 0.5px; }
 body.theme-light .clan-name { color: var(--blue); text-shadow: 0 1px 0 rgba(255,255,255,0.6); }
-body.theme-light .hstat-val { color: #eeb510; text-shadow: 0 1px 4px rgba(0,0,0,0.7), 0 0 12px rgba(238,181,16,0.4); }
+
+/* ── Header stat cards (US rank / World rank / war status) ──
+   Deliberately the same plated card as .live-stat-card on the Live tab
+   (silver header strip + sunk gunmetal value well) rather than their own
+   one-off treatment -- see the .hstat/.live-badge base rules for why the
+   old banner-image version was dropped. Kept as its own rule block
+   instead of just adding .hstat to .live-stat-card's selectors: these sit
+   on the dark header art, so they need a stronger outer shadow and their
+   own compact sizing, while everything else (gradients, strip, well) is
+   intentionally identical. */
+body.theme-light .hstat,
+body.theme-light .live-badge {
+  border-radius: 13px; border: 2px solid #818b9c;
+  background: linear-gradient(180deg,#c6cdd8,#aab2bf);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 4px 10px rgba(0,0,0,0.38);
+}
+body.theme-light .hstat-lbl,
+body.theme-light .live-badge-lbl {
+  padding: 6px 6px; font-family: 'Lilita One', system-ui, sans-serif;
+  font-weight: 400; color: #39425a; opacity: 1;
+  background: linear-gradient(180deg,#f7f9fc 0%,#d1d8e2 50%,#e3e8ef 100%);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.85); border-bottom: 2px solid #a7b0bf;
+}
+body.theme-light .hstat-val,
+body.theme-light .live-badge-val {
+  margin: 9px 10px 10px; padding: 7px 6px; border-radius: 10px;
+  background: linear-gradient(180deg,#6c7384,#535c6e);
+  box-shadow: inset 0 2px 5px rgba(22,28,40,0.55), inset 0 -1px 0 rgba(255,255,255,0.14);
+  color: #ffd75e; text-shadow: 0 1px 1px rgba(0,0,0,0.45);
+}
+body.theme-light .live-badge-text { font-family: 'Lilita One', system-ui, sans-serif; color: #ffffff; }
+/* Training day: no pulsing dot (hidden below) and a calmer gold value, so
+   the two states still read differently at a glance now that the card
+   chrome itself is identical for both. */
+body.theme-light .live-badge.training .live-badge-text { color: var(--gold); }
 
 /* ── Header / chrome ── */
 body.theme-light { background: var(--bg); color: var(--text); }
@@ -129,7 +170,6 @@ body.theme-light .brand-icon {
   box-shadow: 0 3px 6px rgba(0,0,0,0.25);
 }
 body.theme-light .clan-sub { color: var(--text-dim); }
-body.theme-light .hstat-lbl { color: #eeb510; text-shadow: 0 1px 2px rgba(0,0,0,0.6); opacity: 0.9; }
 body.theme-light .status-bar { background: var(--surface2); border-bottom: 1px solid var(--border); color: var(--text-mid); }
 body.theme-light .control-bar {
   background: linear-gradient(180deg, #fbf5e8, #f1e4ca);
@@ -146,7 +186,16 @@ body.theme-light .btn {
   color: #7a6638; border-radius: 9px; font-family: 'Lilita One', system-ui, sans-serif;
   font-weight: 400; text-transform: none; letter-spacing: 0.4px;
 }
-body.theme-light .btn:hover { background: rgba(255,255,255,0.5); color: #4a3a18; }
+/* Hover-capable pointers only. On a touch screen there's no real hover,
+   but tapping a button still leaves :hover latched on it until something
+   else is tapped -- so this rule's translucent-white fill would stick to
+   the last-tapped button and read as a second, meaningless "on" state
+   next to the real gold one (reported on the Graphic tab's Opponents
+   toggle, which looked different after being tapped than it did on first
+   render). Desktop behaviour is unchanged. */
+@media (hover: hover) {
+  body.theme-light .btn:hover { background: rgba(255,255,255,0.5); color: #4a3a18; }
+}
 body.theme-light .btn.active,
 body.theme-light .btn.mode-active.active {
   background: linear-gradient(180deg, #f7c24a, #ec9d1c); color: #fff; border: none;
@@ -169,9 +218,32 @@ body.theme-light .btn-group > .btn:only-child {
 }
 body.theme-light .refresh-btn:hover { filter: brightness(1.06); background: linear-gradient(180deg, #3d8be0, #2a6fc9); color: #fff; }
 body.theme-light .btn-group > .btn:only-child { border: none; }
+
+/* Offline modal — same cream-panel/gold-tan-border treatment as other
+   cards (compare body.theme-light .graphic-placeholder further down),
+   with the OK button as a red 3D pill matching .refresh-btn's blue one. */
+body.theme-light .offline-modal-box {
+  background: var(--surface); border: 2px solid var(--border2);
+  box-shadow: 0 10px 30px rgba(20,15,5,0.35);
+}
+body.theme-light .offline-modal-icon { color: var(--red); }
+body.theme-light .offline-modal-title { font-family: 'Lilita One', system-ui, sans-serif; color: var(--red); }
+body.theme-light .offline-modal-msg { font-family: 'Nunito', sans-serif; color: var(--text-mid); }
+body.theme-light .offline-modal-ok {
+  font-family: 'Lilita One', system-ui, sans-serif; color: #fff; border-radius: 11px;
+  background: linear-gradient(180deg, #e0605c, #cf4444);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 3px 0 #8f2a26, 0 4px 5px rgba(0,0,0,0.16);
+}
+body.theme-light .offline-modal-ok:hover { filter: brightness(1.06); }
+body.theme-light .offline-modal-ok:active {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 1px 0 #8f2a26, 0 2px 3px rgba(0,0,0,0.16);
+}
+body.theme-light .wifi-off-icon svg { color: var(--red); }
+
 /* Toggle "on" states keep their tinted meaning but go solid+chunky */
 body.theme-light .btn-live-on,
 body.theme-light .btn-battles-on,
+body.theme-light .btn-opponents-on,
 body.theme-light #btn-pb-data.active,
 body.theme-light #btn-pb-graphic.active {
   color: #fff !important; border: none !important;
@@ -231,20 +303,6 @@ body.theme-light .g-section-hdr {
   border-radius: 14px; box-shadow: 0 3px 8px rgba(120,90,40,0.12);
 }
 
-/* Theme toggle button */
-.theme-toggle {
-  background: var(--surface2); border: 1px solid var(--border2); color: var(--text-mid);
-  padding: 8px 14px; border-radius: 6px; font-family: 'Rajdhani', sans-serif; font-weight: 700;
-  font-size: 12px; letter-spacing: 1px; cursor: pointer; white-space: nowrap; transition: all 0.15s;
-}
-.theme-toggle:hover { color: var(--text); border-color: var(--gold); }
-body.theme-light .theme-toggle {
-  font-family: 'Lilita One', system-ui, sans-serif; font-weight: 400; border: none; color: #fff;
-  border-radius: 11px; background: linear-gradient(180deg, #3d8be0, #2a6fc9);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 3px 0 #1a4d8f, 0 4px 5px rgba(0,0,0,0.16);
-}
-
-
 /* ═══════════════════════════════════════════════════════════
    ROYAL — DATA PAGE REDESIGN
    Rich blue diamond-quilt background + raised silver rows with
@@ -297,6 +355,14 @@ body.theme-light tbody td:first-child { border-radius: 13px 0 0 13px; border-lef
 body.theme-light tbody td:last-child  { border-radius: 0 13px 13px 0; border-right: 1px solid rgba(169,183,203,0.7); }
 body.theme-light .td-rank { color:#94a0b4; font-family:'Lilita One',system-ui,sans-serif; font-size:13px; text-align:center; width:30px; padding-right:6px; }
 
+/* Clan summary row -- teal-tinted so it reads as a distinct "this is the
+   whole clan" row, not just another player, matching .pos-clan's color. */
+body.theme-light .clan-summary-row td {
+  background: linear-gradient(180deg, #e3fbf8 0%, #c9f0eb 100%);
+  border-bottom: 3px solid #6fc9c0;
+}
+body.theme-light .clan-summary-row:hover td { background: linear-gradient(180deg, #ecfffd 0%, #d3f5f0 100%); }
+
 /* Inlaid, engraved player name — larger */
 body.theme-light .name-cell { gap: 10px; }
 body.theme-light .player-name {
@@ -317,6 +383,7 @@ body.theme-light .pos-elder    { background:linear-gradient(180deg,#4a93dc,#2a6f
 body.theme-light .pos-member   { background:linear-gradient(180deg,#62c558,#3f9e3a); }  /* green */
 body.theme-light .pos-swapper  { background:linear-gradient(180deg,#9f7edb,#7b54c0); }  /* purple*/
 body.theme-light .pos-gone     { background:linear-gradient(180deg,#bcc1c9,#969ca8); }  /* gray  */
+body.theme-light .pos-clan     { background:linear-gradient(180deg,#3ecbc0,#1a9e94); }  /* teal  */
 
 /* Avg fame → recessed score cutout carved into the silver bar */
 body.theme-light td.td-avg {
@@ -608,17 +675,10 @@ body.theme-light tbody tr:hover td.td-avg {
    Scoped to exclude .live-summary-table -- that table's 3rd column is
    Total Fame, not the Role/battles-fraction column this rule targets, and
    an unscoped selector was leaking Nunito onto the Fame numbers there. */
-body.theme-light table:not(.live-summary-table) tbody td:nth-child(3) span { font-family:'Nunito',sans-serif !important; }
-
-
-/* ═══════════════════════════════════════════════════════════
-   ROYAL v6 — Personal Best as reflective-gold TEXT, visible
-   scrollbar affordance on the war-data table. Light + scrollbar.
-   ═══════════════════════════════════════════════════════════ */
-
-/* Personal-best highlight — DARK mode keeps the gold cell (unchanged) */
-.wc.pb { background:linear-gradient(160deg,#ffe066 0%,#c8860a 35%,#ffe98a 55%,#a05e00 75%,#f5c842 100%) !important; }
-.wc.pb .wcell, .wc.pb .pb-num { color:#3a2000 !important; font-weight:700; text-shadow:0 1px 2px rgba(255,220,80,0.5); }
+body.theme-light table:not(.live-summary-table) tbody td:nth-child(3) span { font-family:'Nunito',sans-serif !important; }.wc.pb .wcell { color:#3a2000 !important; font-weight:700; text-shadow:0 1px 2px rgba(255,220,80,0.5); }
+.wc.pb .pb-num {
+  color: #3a2000 !important;
+}
 
 /* ROYAL mode — keep the silver frame + gunmetal well, make the NUMBER reflective gold */
 body.theme-light .wc.pb {
@@ -629,13 +689,17 @@ body.theme-light .wc.pb .pb-num {
   -webkit-background-clip:text; background-clip:text;
   -webkit-text-fill-color:transparent; color:transparent;
   text-shadow:none; font-weight:400;
+}.table-wrap {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 2px;
 }
-
-/* ── Visible scrollbar so the war columns clearly scroll ── */
-.table-wrap { overflow-x:auto; scrollbar-width:thin; scrollbar-color:#6b7384 transparent; padding-bottom:2px; }
-.table-wrap::-webkit-scrollbar { height:11px; }
-.table-wrap::-webkit-scrollbar-track { background:rgba(0,0,0,0.18); border-radius:6px; }
-.table-wrap::-webkit-scrollbar-thumb { background:#6b7384; border-radius:6px; border:2px solid transparent; background-clip:padding-box; }
+.table-wrap::-webkit-scrollbar { height:11px; }.table-wrap::-webkit-scrollbar-track {
+  border-radius: 6px;
+}.table-wrap::-webkit-scrollbar-thumb {
+  border-radius: 6px;
+  border: 2px solid transparent;
+}
 .table-wrap::-webkit-scrollbar-thumb:hover { background:#828ca0; background-clip:padding-box; }
 body.theme-light .table-wrap { scrollbar-color:#c77e16 rgba(60,70,90,0.25); }
 body.theme-light .table-wrap::-webkit-scrollbar-track { background:rgba(70,80,100,0.30); }
@@ -701,10 +765,13 @@ body.theme-light .live-player-card:hover { background: linear-gradient(180deg,#f
 body.theme-light .live-player-card.complete   { background: linear-gradient(180deg,#e4f3e0,#cfe8c8); border-left:4px solid #3f9e3a; }
 body.theme-light .live-player-card.partial    { background: linear-gradient(180deg,#f5e8d0,#edd9b0); border-left:4px solid #cf7320; }
 body.theme-light .live-player-card.incomplete { background: linear-gradient(180deg,#f7e2e0,#eccfcb); border-left:4px solid #cf4444; }
-/* Searched rows: same 3D raised effect but noticeably darker face */
-body.theme-light .live-player-card.search-match.complete   { background: linear-gradient(180deg,#b8e0ae,#96cc90) !important; }
-body.theme-light .live-player-card.search-match.partial    { background: linear-gradient(180deg,#eed898,#d4aa58) !important; }
-body.theme-light .live-player-card.search-match.incomplete { background: linear-gradient(180deg,#eeb0aa,#d08878) !important; }
+/* Searched rows: same 3D raised effect but noticeably darker face --
+   targets .live-card-inner (the part that actually raises/moves), not
+   .live-player-card itself; see the comment on .live-player-card in the
+   dark-theme rules above for why. */
+body.theme-light .live-player-card.search-match.complete   .live-card-inner { background: linear-gradient(180deg,#b8e0ae,#96cc90) !important; }
+body.theme-light .live-player-card.search-match.partial    .live-card-inner { background: linear-gradient(180deg,#eed898,#d4aa58) !important; }
+body.theme-light .live-player-card.search-match.incomplete .live-card-inner { background: linear-gradient(180deg,#eeb0aa,#d08878) !important; }
 
 /* ── LIVE summary table → inherits data-page styles for td-avg wells ── */
 body.theme-light table.live-summary-table { border-collapse:separate; border-spacing:0 8px; width:100%; table-layout:fixed; }
@@ -784,18 +851,16 @@ body.theme-light .player-chart-body {
   background: linear-gradient(180deg,#2b3340,#1b212c); border:2px solid #99a2b1; border-top:none;
   border-radius:0 0 12px 12px;
   box-shadow: inset 0 3px 10px rgba(0,0,0,0.62), inset 0 -1px 0 rgba(255,255,255,0.10);
+}.live-stat-card {
+  flex: 1;
+  min-width: 140px;
+  text-align: center;
+}.live-stat-label {
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}.live-stat-sub {
+  margin-top: 4px;
 }
-
-
-/* ═══════════════════════════════════════════════════════════
-   ROYAL v8 — Live top stat cards: plated card, shiny-silver
-   label strip, value inlaid in a sunk well (like data rows).
-   ═══════════════════════════════════════════════════════════ */
-
-/* Base (dark mode) — reproduce the old inline look */
-.live-stat-card { flex:1; min-width:140px; text-align:center; padding:14px 10px; background:var(--surface); border:1px solid var(--border2); border-radius:6px; }
-.live-stat-label { font-family:'Share Tech Mono',monospace; font-size:9px; letter-spacing:1.5px; color:var(--text-dim); text-transform:uppercase; margin-bottom:8px; }
-.live-stat-sub { font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--text-dim); margin-top:4px; }
 
 /* Royal — plated card with shiny-silver header strip + sunk value well */
 body.theme-light .live-stat-card {
@@ -843,12 +908,12 @@ body.theme-light .live-stat-sub {
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 12px;
   margin-bottom: 8px;
-}
-
-.an-card {
+}.an-card {
   border-radius: 12px;
   padding: 14px 16px;
-  display: flex; flex-direction: column; gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   position: relative;
 }
 body.theme-light .an-card {
@@ -933,6 +998,20 @@ body.theme-light .an-card {
   font-size: 9px; color: var(--text-dim); text-align: right;
 }
 
+/* Opens the deck history modal (showDeckHistoryModal(), tab-live.js) for
+   this card's player -- same purple as that modal's own header, so the
+   button visually previews what it opens. */
+.btn-battle-info {
+  width: 100%; margin-top: 2px;
+  padding: 7px 10px; border: none; border-radius: 8px; cursor: pointer;
+  font-family: 'Lilita One', system-ui, sans-serif; font-size: 11px; letter-spacing: 0.4px;
+  color: #fff; background: linear-gradient(180deg, #9a6fd6, #6f44b4);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 3px 0 #4f2e87, 0 4px 6px rgba(0,0,0,0.2);
+  transition: filter 0.15s;
+}
+.btn-battle-info:hover { filter: brightness(1.08); }
+.btn-battle-info:active { transform: translateY(2px); box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 1px 0 #4f2e87, 0 2px 3px rgba(0,0,0,0.2); }
+
 /* ── Veteran border tiers on analysis cards ── */
 body.theme-light .an-card.vet-bronze {
   border: 4px solid #a0522d;
@@ -946,10 +1025,6 @@ body.theme-light .an-card.vet-gold {
   border: 4px solid #d4a017;
   box-shadow: 0 0 8px rgba(212,160,23,0.3), inset 0 1px 0 rgba(255,255,255,0.9);
 }
-/* Dark mode */
-.an-card.vet-bronze { border: 4px solid #8b4513; box-shadow: 0 0 5px rgba(139,69,19,0.3); }
-.an-card.vet-silver { border: 4px solid #6e7f94; box-shadow: 0 0 5px rgba(110,127,148,0.3); }
-.an-card.vet-gold   { border: 4px solid #c8960c; box-shadow: 0 0 7px rgba(200,150,12,0.35); }
 
 /* toggle button for inactive */
 /* ── Analysis kick/warning pulse lights ── */
@@ -987,8 +1062,7 @@ body.theme-light .live-day-header.future {
   background: linear-gradient(180deg,#f7f9fc 0%,#d1d8e2 50%,#e3e8ef 100%);
   color:#39425a; border-bottom:2px solid #a7b0bf;
 }
-body.theme-light .live-day-header.future .live-day-label,
-body.theme-light .live-day-header.future .live-day-counter { color:#39425a; }
+body.theme-light .live-day-header.future .live-day-label { color:#39425a; }
 
 /* Larger inlaid value well on the top stat cards (~80% of the card) */
 body.theme-light .live-stat-card > div:nth-child(2) {
@@ -1005,146 +1079,799 @@ body::after {
   content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
   background-image: linear-gradient(rgba(240,180,41,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(240,180,41,0.025) 1px, transparent 1px);
   background-size: 40px 40px;
+}#loader {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  transition: opacity 0.5s;
+  overflow: hidden;
 }
-
-/* ═══════════════════════════════════════════════════════
-   LOADER — full-screen splash shown during initial fetch
-   ═══════════════════════════════════════════════════════ */
-#loader { position: fixed; inset: 0; background: var(--bg); z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; transition: opacity 0.5s; overflow: hidden; }
 body.theme-light #loader { background: #0d1829; }
 #loader.hidden { opacity: 0; pointer-events: none; }
-.loader-kings { width: min(340px, 60vw); margin-bottom: -6px; filter: drop-shadow(0 8px 24px rgba(0,0,0,0.55)); }
-.loader-kings img { width: 100%; height: auto; display: block; }
-.loader-title { font-family: 'Orbitron', monospace; font-size: 24px; font-weight: 900; color: var(--gold); letter-spacing: 6px; text-shadow: 0 0 30px rgba(240,180,41,0.4); display: flex; align-items: center; gap: 12px; }
+
+/* Hero box: fixed to the king art's real aspect ratio (644x392) so the
+   curtain sitting on top of it always lines up exactly, no matter the
+   viewport. Rounded + clipped so the curtain columns' own square edges
+   never poke out past the rest of the loader's rounded-corner language. */
+.loader-hero {
+  position: relative;
+  width: min(340px, 60vw);
+  aspect-ratio: 644 / 392;
+  margin-bottom: -6px;
+  border-radius: 16px;
+  overflow: hidden;
+  filter: drop-shadow(0 8px 24px rgba(0,0,0,0.55));
+}
+.loader-kings { position: absolute; inset: 0; }
+.loader-kings img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Columns are plain flex children (equal width, in normal flow) so they
+   need no manually-computed left offsets -- transform:translateX purely
+   repositions them visually and never touches layout, so nothing needs
+   recalculating as columns reveal. Built by buildLoaderCurtain() and
+   swept by updateLoaderCurtain() (both main.js), driven by setLoader()'s
+   (parse.js) real fetch-progress percentage, not a fixed decorative timer
+   -- the sweep is a genuine progress indicator, not just an animation. */
+.loader-curtain { position: absolute; inset: 0; z-index: 2; display: flex; }
+.loader-curtain-col {
+  flex: 1 1 0; background-size: cover; background-position: center;
+  border-right: 1px solid rgba(240,180,41,0.2);
+  transform: translateX(0);
+  /* Duration + updateLoaderCurtain()'s per-column stagger (main.js) are
+     tuned together so the slowest-revealing column (worst case: all 8
+     jump at once, e.g. a cached/instant load where every setLoader()
+     step fires within milliseconds of each other) still finishes well
+     inside the 400ms hideLoader() (parse.js) already waits before fading
+     the whole loader out -- otherwise the curtain could still visibly be
+     mid-sweep when the loader itself starts disappearing. */
+  transition: transform 0.3s cubic-bezier(0.65, 0, 0.35, 1);
+  will-change: transform;
+}
+.loader-curtain-col:last-child { border-right: none; }
+
+.loader-title {
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--gold);
+  text-shadow: 0 0 30px rgba(240,180,41,0.4);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .loader-logo { height: 78px; width: auto; display: block; }
 .loader-bar-bg { width: 300px; height: 3px; background: var(--surface3); border-radius: 2px; overflow: hidden; }
 .loader-bar-fill { height: 100%; background: var(--gold); border-radius: 2px; width: 0%; transition: width 0.4s ease; box-shadow: 0 0 10px rgba(240,180,41,0.6); }
 .loader-status { font-family: 'Share Tech Mono', monospace; font-size: 12px; color: var(--text-dim); letter-spacing: 2px; }
 
-/* ═══════════════════════════════════════════════════════
-   HEADER — clan name, key stats, live/training badge
-   ═══════════════════════════════════════════════════════ */
-.header { position: relative; z-index: 10; padding: 24px 36px 18px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, rgba(240,180,41,0.07) 0%, transparent 100%); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.brand { display: flex; align-items: center; gap: 14px; }
-.brand-icon {
-  width: 54px; height: 54px;
-  background-image: url('assets/icon_menu_clan_wars.png');
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
-  filter: drop-shadow(0 0 10px rgba(240,180,41,0.45));
+/* MOBILE ONLY loading screen -- see the media query below for what's
+   hidden/repositioned. This curtain itself covers the entire #loader box
+   (not just a small hero box like desktop's .loader-curtain), hidden by
+   default and only switched on inside that same media query, so it's
+   always in the DOM but inert/invisible above the breakpoint. */
+.loader-curtain-mobile {
+  display: none;
+  position: absolute; inset: 0; z-index: 5;
+  flex-direction: column;
 }
-.clan-name { font-family: 'Orbitron', monospace; font-size: 20px; font-weight: 900; color: var(--gold); letter-spacing: 4px; text-shadow: 0 0 20px rgba(240,180,41,0.3); }
-.clan-sub { font-family: 'Share Tech Mono', monospace; font-size: 9px; color: var(--text-dim); letter-spacing: 3px; margin-top: 4px; text-transform: uppercase; }
-.header-stats { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.hstat {
+.loader-curtain-mobile-row {
+  flex: 1 1 0; background-size: cover; background-position: center;
+  border-bottom: 1px solid rgba(240,180,41,0.2);
+  transform: translateX(0);
+  /* vw, not a fixed px like desktop's column curtain -- this row spans
+     the device's full (and much more variable) width, so a fixed
+     distance tuned for one phone size could fail to clear a wider one;
+     120vw always exceeds the viewport regardless of device. Timing
+     matches the desktop curtain's own tuning (see its comment) for the
+     same reason -- has to finish well inside hideLoader()'s 400ms wait. */
+  transition: transform 0.3s cubic-bezier(0.65, 0, 0.35, 1);
+  will-change: transform;
+}
+.loader-curtain-mobile-row:last-child { border-bottom: none; }
+
+/* Gated on EITHER dimension being phone-scale (max-width OR max-height),
+   which is mathematically the same as min(width,height) <= 768 -- a
+   phone rotated to landscape can have a WIDTH over 768px on larger
+   devices, and per explicit ask this design must still show "even if the
+   phone is horizontal" rather than falling back to the desktop layout.
+   Deliberately has NO separate orientation:landscape override anywhere
+   in this block (unlike the rest of this app's mobile CSS) -- the same
+   rules apply at whatever the current width/height actually are, which
+   is exactly what "always load this way" requires. */
+@media (max-width: 768px), (max-height: 768px) {
+  /* No padding-top here (an earlier version used this to position the
+     title) -- .loader-curtain-mobile's inset:0 resolves against #loader's
+     own PADDING box, so padding here would have shrunk the curtain's
+     coverage away from the top edge instead of covering the full screen.
+     The title is repositioned via its OWN margin-top instead, below,
+     which doesn't touch #loader's box at all. */
+  #loader { justify-content: flex-start; gap: 0; }
+  .loader-hero, .loader-bar-bg, .loader-status, .loader-logo { display: none; }
+  /* Metallic gold 3D text -- same reflective gradient-fill technique
+     already used elsewhere in this app (.wc.pb .pb-num, further up this
+     file) for a "matches the rest of the app" gold-metal look, plus a
+     solid (non-blurred) offset shadow for a raised/extruded look instead
+     of the glow this replaces -- glow removed per explicit feedback. */
+  .loader-title {
+    width: 100%; justify-content: center; text-align: center;
+    margin-top: 40vh; /* ~3/5 up the screen (measuring from the bottom) */
+    font-family: 'Lilita One', system-ui, sans-serif;
+    font-size: clamp(34px, 12vw, 56px);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    background: linear-gradient(180deg, #fff8d2 0%, #f6cf52 44%, #c9901c 56%, #ffe98a 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    text-shadow: 0 3px 0 #8a5a0a, 0 5px 8px rgba(0,0,0,0.4);
+  }
+  .loader-curtain-mobile { display: flex; }
+}
+.header {
   position: relative;
-  background-image: url('assets/Item_Header_Banner_Small.png');
-  background-size: 100% 100%;
-  background-repeat: no-repeat;
-  background-position: center;
-  aspect-ratio: 0.85;
-  width: 124px;
+  z-index: 10;
+  padding: 24px 36px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.brand { display: flex; align-items: center; gap: 14px; }.brand-icon {
+  width: 54px;
+  height: 54px;
+  filter: drop-shadow(0 0 10px rgba(240,180,41,0.45));
+}.clan-name {
+  font-size: 20px;
+  font-weight: 900;
+}.clan-sub {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 3px;
+  margin-top: 4px;
+  text-transform: uppercase;
+}
+.header-stats { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch; }
+/* The three header stats (US rank / World rank / live-war badge) are built
+   as the SAME plated card the Live tab's own top summary cards use
+   (.live-stat-card: silver header strip over a sunk gunmetal value well)
+   -- they used to be the Item_Header_Banner_Small.png scroll graphic
+   instead, which read as a different, unrelated component from every
+   other stat in the app. Structure per card matches .live-stat-card's
+   too: label element FIRST (the strip), value element second (the well),
+   so the shared theme rules below can style them by position the same
+   way. */
+.hstat, .live-badge {
+  position: relative;
+  width: 128px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 0 8px 0 4px;
   text-align: center;
+  padding: 0;
+  overflow: hidden;
   box-sizing: border-box;
-  transform: translateY(-11%);
 }
-.hstat-val { font-family: 'Orbitron', monospace; font-size: 21px; font-weight: 700; color: #eeb510; line-height: 1; text-shadow: 0 1px 4px rgba(0,0,0,0.7), 0 0 12px rgba(238,181,16,0.4); }
-.hstat-lbl { font-size: 9px; color: #eeb510; letter-spacing: 0.6px; text-transform: uppercase; margin-top: 5px; opacity: 0.9; text-shadow: 0 1px 2px rgba(0,0,0,0.6); line-height: 1.3; }
-.live-badge {
-  position: relative;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-  background-image: url('assets/Item_Header_Banner_Small.png');
-  background-size: 100% 100%;
-  background-repeat: no-repeat;
-  background-position: center;
-  aspect-ratio: 0.8095;
-  width: 110px;
-  border: none;
-  border-radius: 0;
-  padding: 0 8px 0 4px;
-  box-sizing: border-box;
-  font-family: 'Share Tech Mono', monospace; font-size: 10px; color: #ffffff; letter-spacing: 0.5px; text-align: center; transition: all 0.3s;
-  transform: translateY(-11%);
+.hstat-val {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1;
 }
-.live-badge.training { background-image: url('assets/Item_Header_Banner_Small.png'); }
-.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+.hstat-lbl {
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+/* Dot + text share the value well, so the well is the one flex row here
+   (the card itself stays a column, same as .hstat). */
+.live-badge-val { display: flex; align-items: center; justify-content: center; gap: 5px; }
+.live-badge-text { font-size: 11px; letter-spacing: 0.5px; line-height: 1; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; flex: 0 0 auto; }
 .live-badge.training .live-dot { display: none; }
-@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.8)} }
-
-/* ═══════════════════════════════════════════════════════
-   STATUS BAR — data source indicators (sheet / API / time)
-   ═══════════════════════════════════════════════════════ */
-.status-bar { position: relative; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 36px; display: flex; align-items: center; gap: 20px; font-family: 'Share Tech Mono', monospace; font-size: 10px; color: var(--text-dim); flex-wrap: wrap; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.8)} }.status-bar {
+  position: relative;
+  z-index: 10;
+  padding: 8px 36px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  flex-wrap: wrap;
+}
 .status-logo { height: 84px; width: auto; display: block; opacity: 0.95; }
-.s-ok { color: var(--green); } .s-err { color: var(--red); } .s-loading { color: var(--gold); }
+.s-ok { color: var(--green); } .s-err { color: var(--red); } .s-loading { color: var(--gold); }.control-bar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding: 10px 36px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+/* Wrapper around every per-tab control. display:contents makes it a
+   complete no-op for layout on desktop — its children lay out as direct
+   .control-bar flex items exactly as if this wrapper didn't exist. On
+   mobile it's hidden and serves only as the parking spot those elements
+   return to between renders (see the @media block and main.js's
+   parkTabControls()). */
+.control-bar-extra { display: contents; }
 
-/* ═══════════════════════════════════════════════════════
-   CONTROL BAR — mode switcher (Data/Live/Graphic) and all
-   per-mode toggle buttons; sticks to top on scroll
-   ═══════════════════════════════════════════════════════ */
-.control-bar { position: sticky; top: 0; z-index: 100; background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 36px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* Per-tab control banner, built by tabControlBannerHtml() (main.js) at
+   the top of each tab's content. Mobile-only: on desktop the controls
+   stay in the control bar and this never renders anything, so it's
+   display:none here and switched on inside the @media block. */
+.tab-ctrl-banner { display: none; }
 
-.btn-group { display: flex; gap: 2px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 2px; }
-.btn { background: transparent; border: none; color: var(--text-dim); padding: 6px 14px; border-radius: 3px; font-family: 'Rajdhani', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 1px; cursor: pointer; transition: all 0.15s; text-transform: uppercase; white-space: nowrap; }
-.btn:hover { color: var(--text); background: rgba(255,255,255,0.04); }
-.btn.active { background: var(--gold-glow); color: var(--gold); }
-/* Mode buttons — neutral when inactive, colored when active */
-.btn.mode-active.active  { background: rgba(240,180,41,0.2);  color: var(--gold);   border: 1px solid rgba(240,180,41,0.4); }
-.btn.mode-live.active    { background: var(--green-dim);       color: var(--green);  border: 1px solid rgba(38,194,129,0.3); }
-.btn.mode-graphic.active { background: rgba(155,114,207,0.15); color: var(--purple); border: 1px solid rgba(155,114,207,0.3); }
-.btn.mode-analysis.active { background: rgba(42,111,201,0.15); color: var(--blue);   border: 1px solid rgba(42,111,201,0.3); }
+/* Same chunky purple ribbon as every other section header in the app
+   (compare body.theme-light .section-hdr: identical gradient, inset top
+   highlight, solid 4px bottom edge and drop shadow) -- the banner IS a
+   section header for the tab it sits on, so it gets the section-header
+   treatment rather than a flat color block of its own. */
+body.theme-light .tab-ctrl-banner {
+  background: linear-gradient(180deg, #9a6fd6, #6f44b4);
+  border: none; border-radius: 12px; margin: 2px 2px 14px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 0 #4f2e87, 0 5px 9px rgba(0,0,0,0.28);
+}
+body.theme-light .tab-ctrl-banner-lbl {
+  font-family: 'Lilita One', system-ui, sans-serif; color: #fff;
+  text-shadow: 0 1px 2px rgba(60,30,110,0.6);
+}
 
-.divider { width: 1px; height: 24px; background: var(--border2); margin: 0 4px; }
+.btn-group {
+  display: flex;
+  gap: 2px;
+}.btn {
+  background: transparent;
+  border: none;
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}.btn.mode-live.active {
+  border: 1px solid rgba(38,194,129,0.3);
+}.btn.mode-graphic.active {
+  border: 1px solid rgba(155,114,207,0.3);
+}
+.btn.mode-analysis.active { background: rgba(42,111,201,0.15); color: var(--blue);   border: 1px solid rgba(42,111,201,0.3); }.divider {
+  width: 1px;
+  height: 24px;
+  margin: 0 4px;
+}.search-box {
+  padding: 7px 12px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  width: 160px;
+  outline: none;
+  transition: border-color 0.2s;
+  /* Now a direct .control-bar child (moved out of #control-bar-extra so it
+     survives the mobile collapse -- see the HTML comment by its markup),
+     which would otherwise land it right after the mode switcher instead of
+     after the filter groups. order:1 restores its original desktop visual
+     slot (still before .refresh-btn's order:2, below); the mobile media
+     query resets this back to the default order so it sits where it now
+     physically lives, right next to the collapse toggle. */
+  order: 1;
+}
+.search-box:focus { border-color: var(--gold); }.refresh-btn {
+  margin-left: auto;
+  border: 1px solid rgba(38,194,129,0.25) !important;
+  color: #ffffff !important;
+  order: 2;
+}.main {
+  position: relative;
+  z-index: 1;
+}
 
-.search-box { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 7px 12px; border-radius: 3px; font-family: 'Share Tech Mono', monospace; font-size: 11px; width: 160px; outline: none; transition: border-color 0.2s; }
-.search-box:focus { border-color: var(--gold); }
-.search-box::placeholder { color: var(--text-dim); }
+/* ═══════════════════════════════════════════════════════════
+   OFFLINE MODAL — shown once per fresh app load (after the
+   loader finishes) when navigator.onLine is false. Requires the
+   OK button, never auto-dismisses, so it can't be missed.
+   ═══════════════════════════════════════════════════════════ */
+.offline-modal-overlay {
+  position: fixed; inset: 0; z-index: 1100;
+  background: rgba(8,10,16,0.6);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.offline-modal-overlay.hidden { display: none; }
+.offline-modal-box {
+  max-width: 320px; width: 100%;
+  border-radius: 16px;
+  padding: 24px 22px 20px;
+  text-align: center;
+}
+.offline-modal-icon { font-size: 32px; line-height: 1; margin-bottom: 10px; }
+.offline-modal-title { font-size: 18px; letter-spacing: 0.5px; margin-bottom: 8px; }
+.offline-modal-msg { font-size: 13px; line-height: 1.45; margin-bottom: 18px; }
+.offline-modal-ok {
+  font-size: 14px; letter-spacing: 0.5px;
+  border: none; cursor: pointer;
+  padding: 9px 34px;
+  transition: filter 0.15s;
+}
+.offline-modal-ok:active { transform: translateY(2px); }
 
-.refresh-btn { margin-left: auto; background: rgba(38,194,129,0.1); border: 1px solid rgba(38,194,129,0.25) !important; color: #ffffff !important; }
+/* Live tab's per-day battle detail modal (tab-live.js) -- same overlay
+   pattern as .offline-modal-overlay, wider box since it lists up to 4
+   battles' worth of 8-card decks. */
+.battle-detail-overlay {
+  position: fixed; inset: 0; z-index: 1100;
+  background: rgba(8,10,16,0.6);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.battle-detail-overlay.hidden { display: none; }
 
-/* ═══════════════════════════════════════════════════════
-   MAIN CONTENT AREA — rendered by JS based on active mode
-   ═══════════════════════════════════════════════════════ */
-.main { position: relative; z-index: 1; padding: 16px 36px 40px; }
+/* ── Page scroll lock while any popup is open ──
+   Set on <body> by syncPageScrollLock() (main.js) whenever a modal opens,
+   and removed (restoring the saved scroll position) when the last one
+   closes. position:fixed rather than plain overflow:hidden because iOS
+   Safari ignores overflow:hidden on body for touch scrolling -- a drag
+   that started over the overlay, or one that continued past the end of
+   the popup's own scroll area, still scrolled the page underneath. The
+   saved offset goes on `top` so the frozen page stays visually put
+   instead of jumping to the top the moment a popup opens.
+   overscroll-behavior:contain on the scrollable areas stops the same drag
+   from chaining outward once the popup itself hits its top/bottom. */
+body.modal-open { position: fixed; left: 0; right: 0; width: 100%; overflow: hidden; }
+.battle-detail-overlay,
+.offline-modal-overlay,
+.battle-modal-content { overscroll-behavior: contain; }
+
+/* Whole popup styled as ONE card, matching the Live tab's own top summary
+   cards (BATTLES MISSED, WAR PLACEMENT, etc): a light silver-gradient
+   header banner (player + day) over the card's own body, which is a
+   slightly darker silver than the header -- not the header treatment
+   repeated per battle. Each battle's deck sits in its own dark-silver
+   (gunmetal) inlay within that body, which is the one part meant to read
+   as "sunk in", not the whole card. */
+/* max-height + a single overflow:hidden used to sit on THIS box, which
+   silently clobbered any overflow-y:auto also placed here (the "overflow"
+   shorthand always overwrites both axes) -- nothing could ever scroll, so
+   a 4-battle day just got cut off at 86vh with no way to see the rest.
+   Split responsibilities instead: this box clips to its rounded corners
+   and caps total height (display:flex column), while its header stays
+   fixed and .battle-modal-content (below) is the one part that scrolls. */
+.battle-modal-box {
+  max-width: 820px; width: 100%; max-height: 86vh;
+  display: flex; flex-direction: column;
+  border-radius: 18px; overflow: hidden;
+  position: relative;
+  border: 2px solid #818b9c;
+  background: linear-gradient(180deg,#c6cdd8,#aab2bf);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 10px 28px rgba(0,0,0,0.35);
+}
+/* Purple 3D banner -- same treatment as the Data tab's section headers
+   (.section-hdr/.g-section-hdr/.analysis-section-hdr: linear-gradient
+   #9a6fd6->#6f44b4, white Lilita One text) -- per explicit feedback,
+   replacing the earlier light-silver banner so this popup's header reads
+   as the same "section header" chrome as the rest of the app instead of
+   its own one-off style. Also the header for the Card Art Debug popup
+   (showCardDebugModal(), tab-live.js), which reuses this same class. */
+.battle-modal-header {
+  position: relative; flex: 0 0 auto;
+  padding: 18px 56px;
+  background: linear-gradient(180deg, #9a6fd6, #6f44b4);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 3px 8px rgba(0,0,0,0.25);
+  border-bottom: 2px solid #4f2e87;
+}
+/* Fixed circular chip with its own background -- a long player name (e.g.
+   "YoungJedi — Deck History") can run right up to/under this button since
+   .battle-modal-title is centered across the full header width, and
+   plain text-on-text had no contrast once that happened. The chip stays
+   legible against the purple header regardless of what's behind it. */
+.battle-modal-close {
+  position: absolute; top: 50%; right: 14px; transform: translateY(-50%);
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.22); border: none; border-radius: 50%; cursor: pointer;
+  font-size: 21px; line-height: 1; color: rgba(255,255,255,0.9);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
+}
+.battle-modal-close:hover { background: rgba(0,0,0,0.38); color: #fff; }
+.battle-modal-title {
+  display: block; width: 100%; text-align: center;
+  font-family: 'Lilita One', system-ui, sans-serif;
+  font-size: 26px; letter-spacing: 0.3px; color: #fff;
+  text-shadow: 0 1px 2px rgba(60,30,110,0.6);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.battle-modal-content { padding: 20px 22px 22px; overflow-y: auto; flex: 1 1 auto; }
+.battle-modal-empty {
+  font-family: 'Lilita One', system-ui, sans-serif; font-size: 14px;
+  color: #4a5468; text-align: center; padding: 20px 0;
+}
+.battle-slots { display: flex; flex-direction: column; gap: 18px; }
+
+.battle-row-heading {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.battle-row-num {
+  font-family: 'Lilita One', system-ui, sans-serif; font-size: 13px;
+  letter-spacing: 0.5px; text-transform: uppercase; color: #4a5468;
+}
+/* OUTER header -- always a direct child of .battle-row (one per row: a
+   standalone "Battle N" header, or a grouped duel's own final-score
+   summary header) -- same silver as the per-game headers nested inside a
+   duel's shared inlay (below), but shaped to sit FLUSH against the
+   inlay's top edge (rounded top corners only, no gap, no bottom radius)
+   instead of floating as its own separate rounded bar, so the header and
+   the inlay below it read as one continuous card. An earlier version
+   gave a duel's outer header a translucent gold background to flag it as
+   a duel; removed per explicit feedback -- it's silver like every other
+   header now, distinguished only by its "DUEL" text. Scoped by the
+   direct-child combinator (not a class) so it can never collide with the
+   INNER rule below, which only matches headers a level deeper (children
+   of .battle-deck-inlay, i.e. grandchildren of .battle-row). */
+.battle-row > .battle-row-heading {
+  padding: 8px 12px;
+  border-radius: 10px 10px 0 0;
+  background: linear-gradient(180deg, #f7f9fc 0%, #d1d8e2 50%, #e3e8ef 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+}
+
+/* INNER header -- one per game, nested inside a grouped duel's shared
+   inlay (buildBattleDetailModal(), tab-live.js). Same silver as the
+   OUTER header above, but stays its own floating rounded bar (not flush
+   to anything), so each game still reads as its own raised strip sitting
+   inside the dark sunken inlay well. */
+.battle-deck-inlay > .battle-row-heading {
+  padding: 7px 10px;
+  margin: 0 0 8px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #f7f9fc 0%, #d1d8e2 50%, #e3e8ef 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 2px 5px rgba(0,0,0,0.28);
+}
+.battle-row-result { font-family: 'Lilita One', system-ui, sans-serif; font-size: 16px; }
+/* Explicit per-element result color, not ancestor-based -- a grouped
+   duel's shared inlay (see buildBattleDetailModal(), tab-live.js) nests
+   each game's own heading inside an OUTER row whose own win/loss/draw
+   class is the duel's FINAL result, which can differ from any one game's
+   own result (e.g. a 2-1 duel win contains one losing game). Coloring off
+   the closest ancestor's class would make that one game's LOSS read green;
+   this instead colors every result span off its own explicit class,
+   regardless of what wraps it. */
+.battle-result-win  { color: #1e7a3f !important; }
+.battle-result-loss { color: #a02525 !important; }
+.battle-result-draw { color: #8a6414 !important; }
+/* No decided win/loss yet for this deck (e.g. a legacy merged-duel chunk,
+   which only ever counts toward usage, never wins/losses) -- neutral, not
+   drawn in the "draw" amber since it isn't actually a tied/drawn record.
+   Used by the deck history modal (buildDeckHistoryModal(), tab-live.js). */
+.battle-result-none { color: #4a5468 !important; }
+.battle-row-crowns { font-family: 'Lilita One', system-ui, sans-serif; font-size: 13px; color: #4a5468; display: inline-flex; align-items: center; gap: 3px; }
+.battle-crown-icon { display: inline-block; flex-shrink: 0; vertical-align: middle; object-fit: contain; }
+.battle-game-heading {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.battle-game-label {
+  font-family: 'Lilita One', system-ui, sans-serif; font-size: 11px;
+  letter-spacing: 0.5px; text-transform: uppercase; color: rgba(255,255,255,0.6);
+}
+
+/* The "dark silver" inlay -- same gunmetal-well material the Live tab's
+   summary cards use for their own inset value, sized here to hold a full
+   deck instead of one number. */
+/* Top corners square, not rounded -- .battle-deck-inlay is always
+   directly preceded by its row's own OUTER header (see the flush-header
+   rule above), which owns the rounded top instead so the two read as one
+   continuous card with a flat seam between them. */
+.battle-deck-inlay {
+  border-radius: 0 0 10px 10px; padding: 16px 18px;
+  background: linear-gradient(180deg,#6c7384,#535c6e);
+  box-shadow: inset 0 2px 4px rgba(22,28,40,0.5), inset 0 -1px 0 rgba(255,255,255,0.14);
+}
+.battle-slot-opp {
+  font-family: 'Lilita One', system-ui, sans-serif; font-size: 12px;
+  color: rgba(255,255,255,0.6); margin-bottom: 8px;
+}
+.battle-legacy-note {
+  font-family: 'Lilita One', system-ui, sans-serif; font-size: 10px;
+  line-height: 1.4; color: rgba(255,255,255,0.45); font-style: italic;
+  margin-bottom: 10px;
+}
+
+/* Card Art Debug popup (showCardDebugModal(), tab-live.js) -- reuses
+   .battle-modal-box/-header/-content for the surrounding chrome, this is
+   just the grid of labeled cards inside it. */
+.card-debug-grid { display: flex; flex-wrap: wrap; gap: 14px 10px; justify-content: center; }
+.card-debug-entry { display: flex; flex-direction: column; align-items: center; }
+.card-debug-label {
+  font-family: 'Lilita One', system-ui, sans-serif; font-size: 9px;
+  color: #4a5468; text-align: center; max-width: 76px; line-height: 1.2;
+  margin-top: 4px;
+}
+
+/* Single-row, no-wrap card layout for each battle's deck. Real card art
+   (see buildDeckCardRow(), tab-live.js) with a text-name fallback for
+   anything still missing. Sized (with the modal's own 820px width) to
+   comfortably fit all 8 in one row without scrolling on desktop; the
+   @media rule further down shrinks both for the same reason on narrow
+   phones. Horizontal scroll stays as a fallback only -- never the primary
+   plan -- for anything narrower still. */
+.deck-card-row {
+  display: flex; flex-wrap: nowrap; justify-content: center; align-items: flex-end; gap: 8px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+/* padding-top makes room for .deck-card-tag (see below) to sit fully
+   inside this box instead of poking out above it -- it used to overlap
+   .deck-card-slot itself, which needs overflow:hidden to clip the card
+   image to its rounded shape, so the tag got clipped along with it,
+   leaving only a thin sliver visible. Applied unconditionally (even to
+   cards with no tag) so every card in a row stays the same total height
+   and .deck-card-row's align-items:flex-end still lines up card bottoms. */
+.deck-card-wrap { display: flex; flex-direction: column; align-items: center; position: relative; padding-top: 11px; }
+/* Box ratio matches the actual card art (285x420, confirmed across the
+   asset pack) instead of an arbitrary box -- with object-fit:contain,
+   a box shaped noticeably differently than the art it holds leaves an
+   empty gap on two sides, and .deck-card-slot's OWN background/border
+   shows through that gap as a visibly mismatched second frame around the
+   real one baked into the art. Matching the ratio makes this box hug the
+   art tightly enough that its border reads as part of the same frame.
+   No background fill -- var(--surface) here was a light-theme cream/tan
+   showing through the transparent margin most card PNGs have baked in
+   around their own art, reading as an ugly halo behind every card. No
+   border either (removed per feedback -- wanted just the card images,
+   nothing framing them). */
+.deck-card-slot {
+  position: relative;
+  flex: 0 0 auto; width: 66px; height: 97px;
+  border-radius: 9px; border: none;
+  background: transparent;
+  display: flex; align-items: center; justify-content: center;
+  padding: 3px;
+  overflow: hidden;
+}
+/* Evo/hero cards used to render in a smaller box (to compensate for their
+   own bigger baked-in decorative border) -- reverted per feedback once
+   seen in practice: mixed in with normal cards in the same row, the size
+   difference read as broken/tiny rather than intentional. Same size as
+   every other card now; .deck-card-slot-special is kept as a hook only. */
+.deck-card-img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: contain;
+}
+/* Evo cards' art (assets/cards/evo/*) is a full alternate card image with
+   its own baked-in frame, not a small decal -- object-fit:cover instead
+   of contain crops out the heavy decorative padding most of these carry
+   around the actual character, so the character reads at roughly the same
+   size as a plain card instead of shrunk in the middle of empty space. */
+.deck-card-img-cover { object-fit: cover; }
+/* Hidden by default -- shown via the <img>'s onerror handler
+   (buildDeckCardRow(), tab-live.js) only when that card's art is
+   missing, so this never flashes visible before the image has a chance
+   to load. */
+.deck-card-fallback {
+  display: none; position: absolute; inset: 0;
+  align-items: center; justify-content: center; padding: 5px;
+}
+.deck-card-name {
+  font-family: 'Lilita One', system-ui, sans-serif;
+  font-size: 11px; line-height: 1.25; text-align: center;
+  color: var(--text-mid); word-break: break-word; hyphens: auto;
+}
+/* Small corner badge -- shown alongside the evo/champion art itself
+   (which now fully replaces the base art for an evo card, see
+   buildDeckCardRow()) as a quick at-a-glance flag, not a fallback for a
+   missing image. Positioned relative to .deck-card-wrap (top:0, sitting
+   in the padding-top room added there), NOT .deck-card-slot -- that box
+   needs overflow:hidden to clip the card image to its rounded shape, and
+   this badge used to be a child of it, clipped along with anything else
+   that poked past its edges. */
+.deck-card-tag {
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  font-family: 'Lilita One', system-ui, sans-serif; font-size: 7px;
+  letter-spacing: 0.5px; padding: 1px 5px; border-radius: 6px;
+  color: #fff; white-space: nowrap; z-index: 1;
+}
+.deck-card-tag-evo  { background: #9b4fd6; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+.deck-card-tag-hero { background: #d6a13b; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+
+/* All-time usage count + win/loss bar for THIS specific deck, shown right
+   under its card row. Deliberately just win/loss (not win/draw/loss) and
+   just a quick-glance count -- a deeper breakdown is a planned Analyze-tab
+   feature, not this popup. */
+.deck-usage-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.deck-usage-count {
+  font-family: 'Lilita One', system-ui, sans-serif; font-size: 14px;
+  color: rgba(255,255,255,0.85); flex-shrink: 0;
+}
+.deck-usage-bar {
+  flex: 1; display: flex; height: 8px; border-radius: 4px; overflow: hidden;
+  background: rgba(0,0,0,0.3);
+}
+.deck-usage-bar-win  { background: var(--blue); }
+.deck-usage-bar-loss { background: var(--red); }
+.deck-usage-winpct {
+  font-family: 'Lilita One', system-ui, sans-serif; font-size: 12px;
+  color: rgba(255,255,255,0.85); flex-shrink: 0; min-width: 32px; text-align: right;
+}
+
+/* ── Deck history modal (buildDeckHistoryModal(), tab-live.js) ──
+   Each deck's row splits into a main column (cards + usage bar, same as
+   the per-day battle popup) and a side cluster (avg crowns + win-rate
+   graph), ALWAYS stacked with the side cluster below the main one --
+   an earlier version put them side by side on desktop (wrapping only
+   once space ran out), but the modal's 820px width isn't wide enough to
+   fit both the side cluster AND all 8 cards in one row without the card
+   row itself needing to horizontally scroll to be fully seen. Stacking
+   unconditionally gives the card row the FULL content width on every
+   screen size, matching the per-day battle popup's own single-column
+   layout instead of introducing a scroll this popup didn't have before. */
+.deck-history-row { display: flex; flex-direction: column; gap: 10px; }
+.deck-history-main { width: 100%; }
+/* Wraps rather than overflowing: with Avg Elixir added as a fourth stat
+   alongside Avg Won / Avg Lost / the win-rate graph, the four together
+   are wider than a narrow phone's modal content box -- the graph drops to
+   its own line there instead of squeezing the row. Desktop has room for
+   all four in one row, so nothing changes there. */
+.deck-history-side { display: flex; gap: 6px; flex-wrap: wrap; }
+.deck-avg-crowns, .deck-war-graph-wrap {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 6px 8px; border-radius: 8px; background: rgba(0,0,0,0.25);
+}
+.deck-avg-crowns { justify-content: center; min-width: 54px; }
+/* Blue/red crown icon (crownIconHtml(), tab-live.js -- same real crown
+   art used everywhere else crowns show up) sits right next to the
+   number -- per feedback, a bare colored number alone didn't read as
+   "crowns" on its own. */
+.deck-avg-crowns-row { display: flex; align-items: center; gap: 3px; }
+.deck-avg-crowns-val { font-family: 'Lilita One', system-ui, sans-serif; font-size: 16px; }
+/* Won/lost get distinct colors, not one shared gold -- they tell a
+   different story (a deck that wins big vs. one that wins narrowly but
+   also concedes a lot both average out the same in a single number). */
+.deck-avg-crowns-won  { color: var(--green); }
+.deck-avg-crowns-lost { color: var(--red); }
+/* Avg elixir sits in the same .deck-avg-crowns box as the two crown stats
+   (identical chrome/label treatment on purpose -- it's a fourth stat in
+   that cluster, not its own kind of thing), just with the elixir drop's
+   own purple instead of the win/loss green/red. */
+.deck-avg-elixir-val { color: #d17ee0; }
+.deck-elixir-icon { display: block; flex: 0 0 auto; }
+.deck-avg-crowns-lbl, .deck-war-graph-lbl {
+  font-family: 'Share Tech Mono', monospace; font-size: 7px; letter-spacing: 0.5px;
+  text-transform: uppercase; color: rgba(255,255,255,0.5); margin-top: 2px;
+}
+.deck-war-graph-lbl { margin-top: 0; margin-bottom: 4px; }
+.deck-war-graph { display: block; }
+.deck-war-graph-empty {
+  font-family: 'Lilita One', system-ui, sans-serif; font-size: 9px;
+  color: rgba(255,255,255,0.4); padding: 14px 6px; text-align: center;
+}
+.deck-graph-axis-lbl, .deck-graph-x-lbl {
+  font-family: 'Share Tech Mono', monospace; font-size: 6.5px; fill: rgba(255,255,255,0.5);
+}
+
+/* Sort control row above the deck list -- a real 3-button .btn-group
+   (identical markup/classes to every other multi-way toggle in this app,
+   e.g. the Analysis tab's Score toggle), not a single button that cycles
+   blind through modes -- per explicit feedback, clicking one unknown
+   state at a time with no visibility into the other options was a real
+   usability complaint. The active button picks up the app's own gold
+   .btn.active treatment automatically, no bespoke button class needed. */
+.deck-history-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.deck-history-sort-lbl {
+  font-family: 'Share Tech Mono', monospace; font-size: 10px;
+  letter-spacing: 1px; text-transform: uppercase; color: #4a5468;
+}
+
+@media (max-width: 700px) {
+  .battle-detail-overlay { padding: 10px; }
+  .battle-modal-content { padding: 14px 14px 16px; }
+  .battle-modal-header { padding: 12px 16px; }
+  .battle-deck-inlay { padding: 12px 10px; }
+  .deck-card-row { gap: 3px; }
+  .deck-card-slot { width: 34px; height: 50px; border-radius: 6px; padding: 2px; }
+  .deck-card-name { font-size: 7px; line-height: 1.05; }
+  .deck-history-row { gap: 8px; }
+  .deck-war-graph { width: 128px; height: 50px; }
+  .deck-avg-crowns, .deck-war-graph-wrap { padding: 5px 6px; }
+  .deck-avg-crowns { min-width: 42px; }
+  .deck-avg-crowns-val { font-size: 13px; }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PULL-TO-REFRESH — touch-driven only (see initPullToRefresh(),
+   main.js): the gesture is entirely touchstart/touchmove/touchend
+   listeners, which simply never fire on a non-touch device, so
+   this needs no width media query to stay mobile-only -- it's
+   gated by a real signal (touch input), not a proxy for one.
+   #app itself is translateY'd during the drag (JS, inline style);
+   this indicator is what that reveals.
+   ═══════════════════════════════════════════════════════════ */
+#ptr-indicator {
+  position: fixed; top: 10px; left: 50%;
+  width: 36px; height: 36px;
+  transform: translateX(-50%) translateY(-40px);
+  opacity: 0;
+  z-index: 150;
+  pointer-events: none;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--gold);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center;
+}
+#ptr-indicator svg { width: 17px; height: 17px; color: var(--gold); transition: transform 0.15s ease; }
+#ptr-indicator.ptr-spinning svg { animation: ptrSpin 0.7s linear infinite; }
+@keyframes ptrSpin { to { transform: rotate(360deg); } }
+
+/* Small "no connection" glyph next to the Updated timestamp */
+.wifi-off-icon { display: inline-flex; vertical-align: middle; margin-left: 5px; }
+.wifi-off-icon svg { display: block; }
 
 /* ═══════════════════════════════════════════════════════
    TABLE SECTION HEADERS — color-striped labels above tables
    ═══════════════════════════════════════════════════════ */
-.section { margin-bottom: 24px; }
-.section-hdr { display: flex; align-items: center; gap: 10px; padding: 8px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
-.section-stripe { width: 3px; height: 14px; border-radius: 2px; flex-shrink: 0; }
-.section-title { font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 3px; color: var(--text-mid); text-transform: uppercase; }
-.section-cnt { font-family: 'Share Tech Mono', monospace; font-size: 9px; color: var(--text-dim); margin-left: auto; }
-
-/* ═══════════════════════════════════════════════════════
-   DATA TABLE — historical war performance grid
-   ═══════════════════════════════════════════════════════ */
-.table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-thead th { font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 1px; color: var(--text-dim); text-transform: uppercase; padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer; user-select: none; }
+.section { margin-bottom: 24px; }.section-hdr {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+}.section-stripe {
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}.section-title {
+  text-transform: uppercase;
+}.section-cnt {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  margin-left: auto;
+}
+/* Mobile-only checkboxes (pin names / pin header) next to the first
+   section's title — hidden here unconditionally so desktop never sees
+   them regardless of any JS check; the @media block below is the only
+   place that turns them back on. */
+.mobile-pin-toggles { display: none; }
+.table-wrap {
+  overflow-x: auto;
+}table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}thead th {
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
 thead th:hover { color: var(--text-mid); }
-thead th.war-th { text-align: center; min-width: 44px; padding: 7px 3px; font-size: 8px; }
-tbody tr { border-bottom: 1px solid rgba(30,40,56,0.4); transition: background 0.1s; }
-tbody tr:hover { background: rgba(240,180,41,0.03); }
-td { padding: 7px 10px; white-space: nowrap; vertical-align: middle; }
-
-/* ── PLAYER NAME CELL ── */
-.td-rank { font-family: 'Share Tech Mono', monospace; color: var(--text-dim); font-size: 10px; width: 26px; text-align: right; padding-right: 12px; }
-.name-cell { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.player-name { font-weight: 700; font-size: 14px; }
-.pos-badge { font-family: 'Share Tech Mono', monospace; font-size: 9px; padding: 2px 6px; border-radius: 2px; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
-.pos-leader   { background: rgba(240,180,41,0.25); color: var(--gold);   border: 1px solid rgba(240,180,41,0.5); }
-.pos-coleader { background: rgba(240,180,41,0.12); color: var(--gold);   border: 1px solid rgba(240,180,41,0.25); }
-.pos-elder    { background: var(--blue-dim);        color: var(--blue);   border: 1px solid rgba(59,158,222,0.3); }
-.pos-member   { background: var(--green-dim);       color: var(--green);  border: 1px solid rgba(38,194,129,0.25); }
-.pos-swapper  { background: var(--purple-dim);      color: var(--purple); border: 1px solid rgba(155,114,207,0.3); }
-.pos-gone     { background: rgba(90,104,128,0.08);  color: #4a5568;       border: 1px solid #1e2838; }
+thead th.war-th { text-align: center; min-width: 44px; padding: 7px 3px; font-size: 8px; }tbody tr {
+  transition: background 0.1s;
+}
+td { padding: 7px 10px; white-space: nowrap; vertical-align: middle; }.name-cell {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}.pos-badge {
+  white-space: nowrap;
+}.pos-leader {
+  color: var(--gold);
+  border: 1px solid rgba(240,180,41,0.5);
+}.pos-coleader {
+  color: var(--gold);
+  border: 1px solid rgba(240,180,41,0.25);
+}.pos-elder {
+  color: var(--blue);
+  border: 1px solid rgba(59,158,222,0.3);
+}.pos-member {
+  color: var(--green);
+  border: 1px solid rgba(38,194,129,0.25);
+}.pos-swapper {
+  color: var(--purple);
+  border: 1px solid rgba(155,114,207,0.3);
+}.pos-gone {
+  color: #4a5568;
+  border: 1px solid #1e2838;
+}
 
 /* ── PROMO TAGS ── */
 .promo-tag { font-family: 'Share Tech Mono', monospace; font-size: 9px; padding: 2px 6px; border-radius: 2px; letter-spacing: 0.5px; white-space: nowrap; }
@@ -1154,14 +1881,13 @@ td { padding: 7px 10px; white-space: nowrap; vertical-align: middle; }
 
 /* ── AVG SCORE ── */
 .td-avg { font-family: 'Orbitron', monospace; font-size: 13px; font-weight: 700; text-align: right; min-width: 65px; }
-.avg-s { color: #26c281; } .avg-a { color: #7ecf5a; } .avg-b { color: var(--gold); } .avg-c { color: var(--orange); } .avg-d { color: var(--red); }
 
 /* ── PARTICIPATION ── */
 .td-part { min-width: 120px; }
-.part-row { display: flex; align-items: center; gap: 8px; }
-.part-pct {
-  font-family: 'Orbitron', monospace; font-size: 11px; font-weight: 700;
-  width: 36px; text-align: right; letter-spacing: 0.5px;
+.part-row { display: flex; align-items: center; gap: 8px; }.part-pct {
+  width: 36px;
+  text-align: right;
+  letter-spacing: 0.5px;
 }
 .part-bar-bg {
   flex: 1; height: 8px;
@@ -1216,18 +1942,16 @@ td { padding: 7px 10px; white-space: nowrap; vertical-align: middle; }
    Colors are relative to min/max across all visible scores.
    ═══════════════════════════════════════════════════════ */
 .wc { font-family: 'Share Tech Mono', monospace; font-size: 10px; text-align: center; padding: 7px 3px; min-width: 44px; }
-.wc-absent { color: var(--border2); background: transparent; }
-.wc-0 { background: rgba(224,82,82,0.55);  color: #ffaaaa; }
-.wc-1 { background: rgba(224,82,82,0.30);  color: #ffbbaa; }
-.wc-2 { background: rgba(232,135,58,0.25); color: #ffd0a0; }
-.wc-3 { background: rgba(240,180,41,0.20); color: #ffe599; }
-.wc-4 { background: rgba(38,194,129,0.12); color: #a8e6c8; }
-.wc-5 { background: rgba(38,194,129,0.22); color: #80d9ae; }
-.wc-6 { background: rgba(38,194,129,0.38); color: #50c890; }
 
 /* ── INACTIVE ROWS ── */
 .inactive-row { opacity: 0.35; }
 .inactive-row:hover { opacity: 0.65; }
+
+/* ── CLAN SUMMARY ROW — replaces the old header banners (Total Wars/
+   Active/Best Avg/Clan Avg), pinned as the first row of the first Data
+   tab section instead. ── */
+.clan-summary-row { font-weight: 700; }
+.clan-summary-row .td-rank { font-size: 15px; }
 
 /* ═══════════════════════════════════════════════════════
    LIVE MODE — chips/cards shown in legacy chip layout
@@ -1243,11 +1967,13 @@ td { padding: 7px 10px; white-space: nowrap; vertical-align: middle; }
 .live-fame-fill { height: 100%; border-radius: 2px; background: var(--gold); transition: width 0.5s; }
 .live-chip-wrap { display: flex; flex-direction: column; flex: 1; }
 .live-not-playing { border-color: var(--red); opacity: 0.5; }
-.live-section-title { font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 3px; color: var(--text-dim); text-transform: uppercase; padding: 12px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
-
-/* ── SHOW INACTIVE BTN ── */
-.btn-live-on { background: rgba(240,180,41,0.15) !important; border-color: var(--gold) !important; color: var(--gold) !important; }
-.btn-battles-on { background: var(--blue-dim) !important; border-color: var(--blue) !important; color: var(--blue) !important; }
+.live-section-title { font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 3px; color: var(--text-dim); text-transform: uppercase; padding: 12px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }.btn-live-on {
+  border-color: var(--gold) !important;
+}.btn-battles-on {
+  border-color: var(--blue) !important;
+}.btn-opponents-on {
+  border-color: var(--gold) !important;
+}
 .deck-frac { font-family: 'Share Tech Mono', monospace; font-size: 9px; margin-left: 4px; vertical-align: middle; }
 .deck-full    { color: var(--green); }
 .deck-good    { color: #8bc34a; }
@@ -1257,71 +1983,120 @@ td { padding: 7px 10px; white-space: nowrap; vertical-align: middle; }
 .deck-na      { color: var(--text-dim); }
 
 .show-inactive-btn { width: 100%; background: none; border: 1px dashed var(--border); color: var(--text-dim); padding: 10px; border-radius: 3px; font-family: 'Rajdhani', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 1px; cursor: pointer; text-transform: uppercase; transition: all 0.2s; margin-bottom: 16px; }
-.show-inactive-btn:hover { border-color: var(--text-dim); color: var(--text); }
-
-/* ── GRAPHIC PLACEHOLDER ── */
-.graphic-placeholder { text-align: center; padding: 80px 40px; color: var(--text-dim); font-family: 'Share Tech Mono', monospace; font-size: 13px; letter-spacing: 2px; border: 1px dashed var(--border2); border-radius: 6px; margin: 20px 0; }
+.show-inactive-btn:hover { border-color: var(--text-dim); color: var(--text); }.graphic-placeholder {
+  text-align: center;
+  padding: 80px 40px;
+  font-size: 13px;
+  margin: 20px 0;
+}
 .graphic-placeholder-icon { font-size: 48px; display: block; margin-bottom: 16px; opacity: 0.3; }
 
 @keyframes fadeUp { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
-tbody tr { animation: fadeUp 0.2s ease both; }
 
 /* ═══════════════════════════════════════════════════════
    LIVE MODE (day-column grid) — 4 columns, one per war day.
    Cards glow green/red on the active day; past days are dimmed.
    ═══════════════════════════════════════════════════════ */
-.live-war-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
-.live-day-col { background: var(--surface); border: 1px solid var(--border2); border-radius: 6px; overflow: hidden; }
-.live-day-header { padding: 12px 16px; font-family: 'Orbitron', monospace; font-size: 10px; letter-spacing: 2px; color: var(--text-mid); text-transform: uppercase; border-bottom: 1px solid var(--border2); background: var(--surface2); }
-.live-day-header.today { background: rgba(240,180,41,0.1); border-color: rgba(240,180,41,0.3); color: var(--gold); }
-.live-day-header.past  { background: rgba(38,194,129,0.06); border-color: rgba(38,194,129,0.2); color: var(--green); }
-.live-day-header.future { opacity: 0.35; }
-.live-day-counter { font-family: 'Orbitron', monospace; font-size: 16px; font-weight: 900; margin-top: 6px; }
-.live-day-label { font-size: 9px; letter-spacing: 2px; margin-bottom: 2px; }
-.live-player-card { display: flex; align-items: center; justify-content: space-between; padding: 9px 16px; border-bottom: 1px solid var(--border); transition: background 0.15s, transform 0.15s, box-shadow 0.15s; position: relative; }
-.live-player-card:hover { background: var(--surface2); }
-.live-player-card.complete   { border-left: 3px solid var(--green);  padding-left: 13px; background: rgba(38,194,129,0.07); }
-.live-player-card.partial    { border-left: 3px solid var(--orange); padding-left: 13px; background: rgba(207,115,32,0.07); }
-.live-player-card.incomplete { border-left: 3px solid var(--red);    padding-left: 13px; background: rgba(224,82,82,0.07); }
-.live-player-card.future-day { opacity: 0.4; }
-/* Search match — raised 3D effect overlapping row above */
-.live-player-card.search-match {
-  z-index: 5;
-  border-radius: 6px;
-  position: relative;
-  margin-top: -10px;
-  margin-bottom: 10px;
+.live-war-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }.live-day-header {
+  padding: 12px 16px;
+  font-size: 10px;
+  text-transform: uppercase;
+}.live-day-header.past {
+  border-color: rgba(38,194,129,0.2);
 }
-.live-player-card.search-match.complete {
-  background: linear-gradient(180deg, #c8eebe, #a0d898);
+.live-day-label { font-family: 'Lilita One', system-ui, sans-serif; font-size: 9px; letter-spacing: 2px; margin-bottom: 2px; }
+/* .live-player-card is the element hover/click logic targets (see
+   attachLiveCardHighlight(), tab-live.js) and must stay geometrically
+   static -- ALL cosmetic layout (flex/padding) and the raised-state
+   transform/background/shadow live on .live-card-inner, a child, instead.
+   A card that visually raises itself was a real, ongoing source of hover
+   bugs when it was also the element being hover/click-tested; splitting
+   "what receives events" from "what visually moves" removes the problem
+   at its root rather than working around it. */
+.live-player-card {
+  position: relative;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.live-card-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 16px;
+  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+  border-radius: 6px;
+}
+.live-player-card.complete .live-card-inner,
+.live-player-card.partial .live-card-inner,
+.live-player-card.incomplete .live-card-inner {
+  padding-left: 13px;
+}
+.live-player-card.future-day { opacity: 0.4; }
+/* Search match — raised 3D effect overlapping row above, applied to
+   .live-card-inner (see the comment on .live-player-card above for why).
+   transform, not margin -- a margin shift changes LAYOUT (pushes every
+   following row), which under fast mouse movement (hover toggling this
+   class many times a second) couldn't keep up with real cursor position,
+   showing the highlight visibly lagging a few rows behind. transform is
+   compositor-only and never touches layout, so toggling it costs nothing
+   and nothing else on the page ever needs to reflow because of it. */
+/* z-index:5 alone doesn't actually win here on desktop -- confirmed by
+   screenshot, not just theory: .live-player-card carries
+   content-visibility:auto (the "(D) Skip painting off-screen rows"
+   perf rule, further up this file) on desktop, which makes each card its
+   own rendering unit in a way that let the UNRAISED row above it paint
+   its bottom border back over this row's raised top edge, even with the
+   higher z-index set. content-visibility:visible here overrides that,
+   ONLY for whichever single card is actually raised right now -- every
+   other (non-hovered) card keeps the auto/off-screen-skip optimization,
+   so this costs nothing on a long roster. */
+.live-player-card.search-match { z-index: 5; }
+/* Higher specificity (body.theme-light + 2 classes) than the base
+   content-visibility:auto rule above (body.theme-light + 1 class) --
+   without matching that, this override would silently lose the
+   specificity battle and never actually apply, even though it comes
+   later in the file. */
+body.theme-light .live-player-card.search-match { content-visibility: visible; }
+.live-player-card.search-match .live-card-inner {
+  transform: translateY(-10px);
+}
+.live-player-card.search-match.complete .live-card-inner {
   border-left: 5px solid #2d7228;
   box-shadow: inset 0 2px 0 rgba(255,255,255,0.75), 0 8px 0 #1e5220, 0 10px 10px rgba(0,0,0,0.25);
 }
-.live-player-card.search-match.partial {
-  background: linear-gradient(180deg, #eed898, #ddb860);
+.live-player-card.search-match.partial .live-card-inner {
   border-left: 5px solid #9a5010;
   box-shadow: inset 0 2px 0 rgba(255,255,255,0.75), 0 8px 0 #6e3408, 0 10px 10px rgba(0,0,0,0.25);
 }
-.live-player-card.search-match.incomplete {
-  background: linear-gradient(180deg, #eeb0aa, #dc8880);
+.live-player-card.search-match.incomplete .live-card-inner {
   border-left: 5px solid #9a2020;
   box-shadow: inset 0 2px 0 rgba(255,255,255,0.75), 0 8px 0 #6e1010, 0 10px 10px rgba(0,0,0,0.25);
 }
-.live-card-name  { font-weight: 700; font-size: 14px; color: var(--text); letter-spacing: 0.3px; }
+.live-card-name  { font-family: 'Lilita One', system-ui, sans-serif; font-weight: 400; font-size: 14px; color: var(--text); letter-spacing: 0.3px; }
+.live-card-rank  { font-family: 'Lilita One', system-ui, sans-serif; font-size: 11px; color: var(--text-dim); min-width: 18px; text-align: right; margin-right: 6px; }
 .live-card-right { display: flex; align-items: center; gap: 12px; }
-.live-card-decks { font-family: 'Share Tech Mono', monospace; font-size: 11px; min-width: 28px; text-align: right; }
-.live-card-decks.full    { color: var(--green); font-weight: 700; }
-.live-card-decks.partial { color: var(--gold);  font-weight: 700; }
-.live-card-decks.empty   { color: var(--red);   font-weight: 700; }
-.live-card-fame { font-family: 'Orbitron', monospace; font-size: 13px; font-weight: 700; color: var(--gold); min-width: 60px; text-align: right; }
+.live-card-decks { font-family: 'Lilita One', system-ui, sans-serif; font-size: 12px; min-width: 28px; text-align: right; }
+.live-card-decks.full    { color: var(--green); }
+.live-card-decks.partial { color: var(--gold); }
+.live-card-decks.empty   { color: var(--red); }
+.live-card-fame { font-family: 'Lilita One', system-ui, sans-serif; font-size: 14px; color: var(--gold); min-width: 60px; text-align: right; }
 @keyframes glowGreen  { 0%,100%{background:rgba(38,194,129,0.07)} 50%{background:rgba(38,194,129,0.16)} }
 @keyframes glowOrange { 0%,100%{background:rgba(207,115,32,0.07)}  50%{background:rgba(207,115,32,0.16)} }
 @keyframes glowRed    { 0%,100%{background:rgba(224,82,82,0.07)}   50%{background:rgba(224,82,82,0.16)} }
 .live-player-card.complete.today-card   { animation: glowGreen 2s infinite; }
 .live-player-card.partial.today-card    { animation: glowOrange 2s infinite; }
-.live-player-card.incomplete.today-card { animation: glowRed   2s infinite; }
-.projection-wrap { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 20px; margin: 20px 0; }
-.projection-title { font-family: 'Orbitron', monospace; font-size: 10px; letter-spacing: 3px; color: var(--text-mid); text-transform: uppercase; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; }
+.live-player-card.incomplete.today-card { animation: glowRed   2s infinite; }.projection-wrap {
+  padding: 20px;
+  margin: 20px 0;
+}.projection-title {
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .proj-legend { display: flex; align-items: center; gap: 5px; font-family: 'Share Tech Mono', monospace; font-size: 10px; color: var(--text-dim); }
 .proj-legend-dot { width: 24px; height: 3px; border-radius: 2px; }
 
@@ -1337,33 +2112,699 @@ tbody tr { animation: fadeUp 0.2s ease both; }
    ═══════════════════════════════════════════════════════ */
 .g-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 12px 0 16px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
 .g-ctrl-label { font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 2px; color: var(--text-dim); text-transform: uppercase; margin-right: 4px; }
-.g-divider { width: 1px; height: 24px; background: var(--border2); }
-
-.clan-chart-wrap { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 20px; margin-bottom: 24px; }
-.clan-chart-title { font-family: 'Orbitron', monospace; font-size: 10px; letter-spacing: 3px; color: var(--text-mid); text-transform: uppercase; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; }
-.chart-legend-item { display: flex; align-items: center; gap: 5px; font-family: 'Share Tech Mono', monospace; font-size: 10px; }
+/* #grp-live/#grp-graphic/#grp-analysis: no-op on desktop (they're plain
+   flex children of .control-bar via #control-bar-extra's display:contents,
+   so they wrap onto the mode switcher's row when there's room, exactly
+   like the Data tab's own controls do) -- see the @media override below
+   for the mobile-only full-width/separator treatment these actually need. */
+.mode-ctrl-row {}
+.g-divider { width: 1px; height: 24px; background: var(--border2); }.clan-chart-wrap {
+  padding: 20px;
+  margin-bottom: 24px;
+}.clan-chart-title {
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}.chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
 .chart-legend-dot { width: 24px; height: 3px; border-radius: 2px; }
+.chart-bar { cursor: pointer; touch-action: manipulation; }
+.chart-bar-rect { transition: y 0.15s ease, height 0.15s ease, filter 0.15s ease, stroke-width 0.15s ease; }
+.chart-bar.chart-bar-active .chart-bar-rect { filter: brightness(1.22) drop-shadow(0 0 6px rgba(255,255,255,0.55)); stroke-width: 2.2; }
+.chart-bar-tooltip { pointer-events: none; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.9)); transition: opacity 0.12s ease; }
+.player-chart-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  user-select: none;
+}.player-chart-name {
+  min-width: 160px;
+}.player-chart-expand {
+  margin-left: auto;
+}.player-chart-body {
+  padding: 16px;
+  display: none;
+}
+.player-chart-body.open { display: block; }.g-section-hdr {
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
-.player-chart-section { margin-bottom: 8px; }
-.player-chart-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; transition: background 0.15s; user-select: none; }
-.player-chart-row:hover { background: var(--surface3); }
-.player-chart-name { font-weight: 700; font-size: 14px; min-width: 160px; }
-.player-chart-avg { font-family: 'Orbitron', monospace; font-size: 12px; min-width: 60px; text-align: right; }
-.player-chart-expand { margin-left: auto; font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-dim); }
-.player-chart-body { background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 4px 4px; padding: 16px; display: none; }
-.player-chart-body.open { display: block; }
+/* ═══════════════════════════════════════════════════════════════════
+   MOBILE COMPATIBILITY — additive @media (max-width: 768px) rules only.
+   This query never fires above 768px, so desktop rendering is
+   untouched. See CLAUDE.md section 6 for the chunk plan; each chunk's
+   rules are grouped and labeled below so they can be found/reverted
+   independently.
+   ═══════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
 
-.g-section-hdr { font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 3px; color: var(--text-dim); text-transform: uppercase; padding: 10px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  /* ── Chunk 1: global control bar responsive wrap ──────────────────
+     Header stats, tab switcher, and control-bar buttons wrap/stack
+     instead of overflowing. Buttons are deliberately compact (not
+     44px touch targets) — with mode switcher + window + sort +
+     battles + live-data + personal-best + search + refresh all
+     visible at once on the Data tab, a 44px minimum meant 6-7 rows;
+     compact pills get the busiest tab (Data) down to ~3 rows and
+     every other tab to 1-2. Dunk confirmed this tradeoff directly. */
+  .header { padding: 12px 14px 10px; gap: 8px; }
+  .control-bar { padding: 6px 10px; gap: 4px; }
+  .main { padding: 12px 14px 40px; }
+
+  /* Status bar: sheet/API connection detail isn't worth the vertical
+     space on a phone — keep only the "Updated <time>" text. */
+  .status-bar { padding: 3px 14px; gap: 0; min-height: 0; }
+  .status-bar .status-logo,
+  .status-bar #st-sheet,
+  .status-bar #st-api { display: none; }
+
+  /* All 3 header stat cards (US/World ranking + war status) share one row.
+     They flex to whatever width is left rather than each keeping a fixed
+     px width -- with the plated-card treatment (see .hstat) a fixed width
+     that fits a 360px phone would look cramped on a 430px one, and one
+     that suits the wider phone wraps the row on the narrow one. */
+  .header-stats { gap: 4px; flex: 1 1 100%; flex-wrap: nowrap; }
+  .hstat, .live-badge { flex: 1 1 0; width: auto; min-width: 0; }
+  /* body.theme-light-prefixed deliberately: the base card rules above are
+     themselves body.theme-light-scoped, so a plain 1-class selector here
+     silently loses the specificity fight and never applies. */
+  body.theme-light .hstat-val,
+  body.theme-light .live-badge-val { margin: 5px 5px 6px; padding: 4px 3px; border-radius: 7px; font-size: 14px; }
+  body.theme-light .hstat-lbl,
+  body.theme-light .live-badge-lbl { font-size: 7px; padding: 4px 3px; letter-spacing: 0.3px; }
+  .live-badge-text { font-size: 8px; letter-spacing: 0.2px; }
+  .live-dot { width: 5px; height: 5px; }
+
+  .btn-group { gap: 2px; padding: 1px; }
+  .btn { padding: 4px 7px; font-size: 9px; letter-spacing: 0.5px; }
+  .divider { margin: 0 3px; height: 16px; }
+  /* order:initial undoes the desktop-only order:1 (see base .search-box
+     rule) -- on mobile the search box renders in natural document order,
+     right after the mode switcher, rather than being pushed past the
+     filter groups the way it is on desktop. Refresh keeps its order:2 so
+     it still lands last on both. */
+  .search-box { width: auto; flex: 1 1 130px; min-width: 70px; padding: 5px 8px; font-size: 10px; box-sizing: border-box; order: initial; }
+  /* Mobile Safari/Chrome auto-zoom the whole page in when a focused input's
+     computed font-size is under 16px (the compact 10px above is well under
+     it) -- and the zoom doesn't auto-revert when the keyboard closes, so
+     the user is stuck pinch-zoomed out until they fix it manually. The
+     browser decides whether to zoom at the exact moment the input gains
+     focus, so bumping the font-size on :focus (before the keyboard opens)
+     prevents the zoom from ever triggering in the first place -- nothing
+     to revert on blur since it never zoomed. Only applies while actually
+     focused/typing, so the compact 10px look is unchanged otherwise. */
+  .search-box:focus { font-size: 16px !important; }
+  .refresh-btn { margin-left: 0; padding: 4px 10px; }
+
+  /* ── Per-tab control banners ──────────────────────────────────────
+     The control bar keeps ONLY what isn't tab-specific: the mode
+     switcher, search and refresh. Every per-tab filter/toggle moves into
+     a banner at the top of that tab's own content (parkTabControls()/
+     mountTabControls(), main.js), so the bar is one predictable row on
+     every tab instead of 1-3 rows depending on which tab is open.
+     This replaced a collapse/expand handle on the bar itself: collapsed
+     it looked right, expanded it was 3 cramped rows of buttons sitting
+     above content they weren't visually attached to.
+     #control-bar-extra is hidden rather than removed — it's where the
+     controls are parked between renders (they'd be destroyed with #main's
+     innerHTML otherwise), so it must keep existing, just never show. */
+  .control-bar-extra { display: none; }
+
+  .tab-ctrl-banner {
+    display: flex; flex-wrap: wrap; align-items: center;
+    gap: 6px; padding: 7px 10px;
+  }
+  /* Title owns its own line, exactly like every other section header in
+     the app; the controls then form tidy centered rows under it. Sharing
+     one line with the controls (an earlier version) left the title's row
+     part-empty and every following row ragged, since the groups are very
+     different widths and wrap wherever they happen to fit. */
+  .tab-ctrl-banner-lbl { flex: 0 0 100%; }
+  .tab-ctrl-host {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+    gap: 5px; flex: 1 1 100%; min-width: 0;
+  }
+  .tab-ctrl-host-empty { display: none; }
+  /* "Sort:", "Player chart avg:", "Show:", "Score:" -- dropped here, not
+     restyled. They're control-bar affordances; on a phone banner they eat
+     most of the width to say what the buttons under them already say
+     ("Score/A-Z", "Active/Inactive"). Desktop still shows them -- only
+     this relocated copy hides them. */
+  .tab-ctrl-host .g-ctrl-label { display: none; }
+  /* display:flex needs !important: render() (main.js) sets these three
+     rows' display INLINE ('flex'/'none') to show the right one per tab,
+     and an inline style beats a stylesheet rule without it. */
+  .tab-ctrl-host .mode-ctrl-row {
+    width: auto; padding-top: 0; border-top: none;
+    display: flex !important; flex-wrap: wrap; align-items: center;
+    justify-content: center; gap: 5px; flex: 1 1 100%; min-width: 0;
+  }
+  /* Vertical rules between groups: they separate cleanly on one long
+     desktop row, but among wrapped rows in a narrow banner they land in
+     arbitrary places (sometimes as the first thing on a row). The gap
+     between groups already does the separating here. */
+  .tab-ctrl-host .divider { display: none !important; }
+
+  /* ── Controls ON the purple banner ──────────────────────────────
+     .btn-group's cream/tan track (#e4d4ad + gold-tan border) is chrome
+     built for the cream control bar and reads as a foreign object on a
+     purple ribbon. Inside the banner a segmented group gets one of the
+     app's other established containers instead: a sunk dark well, same
+     language as the deck inlay and the stat-card value wells. */
+  body.theme-light .tab-ctrl-host .btn-group {
+    background: rgba(38,20,68,0.34); border: none; border-radius: 11px; padding: 2px;
+    box-shadow: inset 0 2px 4px rgba(20,10,40,0.5), inset 0 -1px 0 rgba(255,255,255,0.10);
+  }
+  /* Each segmented group takes a full row of its own, segments sharing the
+     width evenly -- so the banner is a short stack of even tracks rather
+     than groups of very different widths wrapping wherever they fit and
+     leaving ragged half-rows. flex:1 1 auto (not 1 1 0) so a long segment
+     like "Participation" still sizes to its text instead of overflowing. */
+  .tab-ctrl-host .btn-group:not(.btn-group-single) { flex: 1 1 100%; }
+  .tab-ctrl-host .btn-group:not(.btn-group-single) > .btn { flex: 1 1 auto; text-align: center; }
+  /* A single-button group is a toggle, not a segmented control -- that
+     button already IS a pill, so a well around it is just a second ring
+     of chrome. */
+  body.theme-light .tab-ctrl-host .btn-group-single {
+    background: none; box-shadow: none; padding: 0; border-radius: 0;
+  }
+  /* Inactive segment ink: the control bar's brown is unreadable on purple.
+     Active/toggled-on segments keep the app's own gold pill untouched. */
+  body.theme-light .tab-ctrl-host .btn { color: rgba(255,255,255,0.9); }
+  /* A lone <button class="btn"> (the Live tab's Card Art Debug) has no
+     background of its own -- only .btn-group > .btn:only-child gets one --
+     so on a banner it reads as bare grey text, exactly the bug the
+     Opponents toggle had. Same blue pill that rule gives, so a standalone
+     button looks identical wherever it lives. */
+  body.theme-light .tab-ctrl-host .mode-ctrl-row > .btn:not(.refresh-btn) {
+    background: linear-gradient(180deg, #3d8be0, #2a6fc9); color: #fff;
+    border: none; border-radius: 11px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 3px 0 #1a4d8f, 0 4px 5px rgba(0,0,0,0.16);
+  }
+
+  /* ── Chunk 2: Analysis tab responsive ─────────────────────────────
+     Force the card grid to a single column below the breakpoint —
+     same cards, same data, just stacked instead of squeezed. */
+  .analysis-grid { grid-template-columns: 1fr; }
+
+  /* ── Chunk 3: Graphic tab responsive ──────────────────────────────
+     Chart SVGs already scale fluidly via viewBox (label thinning is
+     handled in drawChart() itself, js/tab-graphic.js — width-aware,
+     not just war-count-aware, so it actually fits real phone widths).
+     This fixes the surrounding chrome: clan chart padding (was
+     making the chart look small inside its box), and the per-player
+     row (name + avg + expand label) so it wraps instead of overflowing. */
+  .clan-chart-wrap { padding: 8px; margin-bottom: 14px; }
+  .clan-chart-title { flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .player-chart-row { flex-wrap: wrap; gap: 6px 12px; padding: 10px 12px; }
+  .player-chart-name { min-width: 0; flex: 1 1 auto; }
+  .player-chart-avg { min-width: 0; }
+  .player-chart-expand { margin-left: 0; flex-basis: 100%; text-align: right; }
+
+
+  /* ── Chunk 4: Data tab responsive ─────────────────────────────────
+     .table-wrap already had overflow-x:auto (pre-existing, not new),
+     so horizontal scrolling through war columns already worked — what
+     was missing was the Player column staying visible while doing
+     that. td-player (added to both the header <th> and each row's
+     <td> in tab-data.js) pins to the scroll container's left edge.
+     Also shrinks the whole table — row height/fonts/column widths are
+     all still full desktop size on a phone right now, which is a lot
+     of scrolling for not much visible data at once.
+
+     !important throughout this block is deliberate and load-bearing,
+     not a lazy override: the existing (non-mobile) royal-theme table
+     styling has several stacked "body.theme-light tbody td { padding,
+     font-size, ... }" rules from earlier design iterations, at higher
+     specificity (two classes + two elements) than a plain td/.wc/etc
+     selector can reach without it. Confirmed by measuring computed
+     padding/font-size before adding !important — the plain-selector
+     version below was silently being ignored. Safe here regardless,
+     since every rule in this file only applies inside this
+     max-width:768px block to begin with — desktop can't see it. */
+  /* Not touching background here — td/th already get an opaque gradient
+     from existing (non-mobile) rules; sticky positioning just needs to
+     pin the element, the existing background already covers content
+     scrolling underneath it. Deliberately NOT pinning the header row —
+     a bounded-scroll-box + native sticky version and a JS-driven fake-
+     sticky version were both tried and both worked worse in practice
+     than just letting the header scroll away normally, so .table-wrap
+     stays the plain overflow-x:auto box it always was (see the base,
+     non-mobile rule above); only # and Player pin here. */
+
+  /* Pin BOTH # (rank) and Player at the left edge, not just Player.
+     Player-only pinning (an earlier version) let # scroll away — and
+     since #'s cell is the table's actual :first-child (the one that
+     carries the row's rounded left corner + left border via the
+     existing "tbody td:first-child" rule further up), that corner
+     scrolled off with it, leaving Player stuck with a flat left edge
+     once scrolled. Pinning # too keeps it permanently on screen, so the
+     corner is always visible and Player never needs one of its own.
+     .td-player's left offset can't just be hardcoded to whatever #'s CSS
+     width says — table-layout:auto doesn't treat a <td>'s declared width
+     as a hard constraint, so the ACTUAL rendered width can differ from
+     it. tab-data.js's applyMobileDataPinning() measures the real
+     rendered width via getBoundingClientRect() and sets --rank-col-w,
+     so the two stay pixel-aligned regardless of what auto-layout decides.
+     will-change:transform promotes both to their own GPU-composited
+     layer, avoiding a rare stale-frame flash during a fast scroll. */
+  .td-rank, body.theme-light .td-rank { font-size: 9px !important; padding: 4px 2px 4px 4px !important; }
+  .td-rank, .td-player {
+    position: sticky !important; z-index: 2;
+    will-change: transform; transform: translateZ(0);
+  }
+  .td-rank   { left: 0px !important; }
+  .td-player { left: var(--rank-col-w, 26px) !important; }
+
+  /* The REAL cause of scrolled columns showing through at #'s rounded
+     left corner: border-radius clips a cell's own background to the
+     rounded shape, so the small "notch" areas just outside the curve but
+     inside the box's own rectangle are never painted by # itself at all
+     — whatever sits behind those exact pixels (the Role column etc.,
+     scrolling past underneath) shows through there, every time, not just
+     during a fast scroll. Fixing it needs an opaque backing rectangle
+     behind # that has NO border-radius, filling in exactly those notch
+     pixels, with #'s own rounded content painted on top of it as normal
+     — background:inherit keeps it pixel-matched to #'s own current
+     background (including on row hover) without duplicating/hardcoding
+     the gradient value here. position:sticky already makes # a
+     containing block for this absolutely-positioned pseudo-element. */
+  .td-rank::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: inherit;
+    z-index: -1;
+  }
+
+  /* Rows use content-visibility:auto (see the base "(D) Skip painting
+     off-screen rows" rule) to defer laying out/painting rows far off
+     screen — a real win on a long roster, but the browser only starts
+     rendering a row right as it's ABOUT to enter view, with no CSS-level
+     control over how much earlier ("buffer") that kicks in. On mobile
+     that reads as the sticky # + Player cells "loading slowly": the row
+     (pinned cells included, since they scroll normally along the
+     vertical axis — only their LEFT position is sticky) visibly pops in
+     right as it crosses into the viewport instead of already being
+     there. Disabling the skip on mobile — rendering every row up front
+     regardless of scroll position — removes that pop entirely; a roster
+     table (tens, not thousands, of rows) is cheap enough to fully render
+     without the deferred-paint optimization the desktop rule is really
+     aimed at. */
+  body.theme-light tbody tr { content-visibility: visible !important; }
+
+  /* Player name column: uncapped, auto table layout can hand this column
+     far more width than any name actually needs (the surplus space left
+     over after every other column's own min-width gets allocated here).
+     Capped to the widest name CURRENTLY on screen — measured in
+     tab-data.js's applyMobileDataPinning(), which sets --player-col-w —
+     so the pinned column is only ever as wide as it needs to be for the
+     roster actually visible right now (halved further in portrait, where
+     there's much less horizontal room to spare). A name longer than the
+     widest measured one shouldn't normally occur, but if it ever did, it
+     clips with an ellipsis rather than stretching the column back out. */
+  .td-player { max-width: var(--player-col-w, 90px) !important; overflow: hidden !important; }
+  .td-player .player-name { overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: 100%; vertical-align: bottom; }
+
+  /* Name-pin toggle — checkbox next to the first section's title (see
+     .mobile-pin-toggles markup in tab-data.js), mobile only. Unchecking
+     it reverts the rank/player left-sticky columns back to normal flow. */
+  body.pin-names-off tbody .td-rank,
+  body.pin-names-off tbody .td-player { position: static !important; max-width: none !important; }
+  body.pin-names-off thead th.td-rank,
+  body.pin-names-off thead th.td-player { left: auto !important; }
+
+  /* Sits inside the purple .section-hdr banner, where var(--text-dim) is
+     near-invisible -- white ink like everything else in that header. */
+  .mobile-pin-toggles { display: flex !important; gap: 10px; margin-left: 8px; font-size: 8px; align-items: center; color: rgba(255,255,255,0.9); }
+  .mobile-pin-toggles label { display: flex; align-items: center; gap: 3px; white-space: nowrap; cursor: pointer; }
+  .mobile-pin-toggles input[type=checkbox] { width: 11px; height: 11px; margin: 0; }
+
+  table, body.theme-light tbody td { font-size: 11px !important; }
+  thead th, body.theme-light thead th { padding: 5px 6px !important; font-size: 8px !important; }
+  thead th.war-th { min-width: 38px !important; padding: 5px 2px !important; font-size: 7px !important; }
+  td, body.theme-light tbody td { padding: 4px 6px !important; }
+  .player-name, body.theme-light .player-name { font-size: 12px !important; }
+  .pos-badge, body.theme-light .pos-badge { font-size: 8px !important; padding: 1px 4px !important; }
+  .td-avg, body.theme-light td.td-avg { font-size: 11px !important; min-width: 46px !important; }
+  .td-part { min-width: 80px !important; }
+  .part-bar-bg { min-width: 32px !important; height: 6px !important; }
+  .part-pct { width: 26px !important; font-size: 9px !important; }
+  .td-trend { min-width: 26px !important; }
+  .trend-up, .trend-down { width: 20px !important; height: 20px !important; font-size: 10px !important; }
+  .trend-flat { width: 16px !important; }
+  .wc, body.theme-light td.wc { font-size: 9px !important; padding: 4px 2px !important; min-width: 38px !important; }
+
+  /* ── Chunk 5: Live tab responsive (portrait) ───────────────────────
+     Day columns become a horizontally swipeable, ONE-day-at-a-time
+     view via CSS scroll-snap, rather than a normal free-scrolling
+     strip like the Data/Graphic tabs use — a snap point sits at the
+     start of each day, so a swipe settles ON a day instead of leaving
+     the user stranded half-scrolled between two of them.
+     scroll-snap-stop:always additionally forces the scroll to stop at
+     EVERY snap point it passes rather than letting a fast/long flick
+     sail past several days at once — matches "weighted to slow down
+     and stop on each of the days," not just "eventually lands on one."
+     Landscape (see the addendum block below) explicitly reverts all of
+     this back to the desktop grid — narrow landscape still has enough
+     width to just shrink the 4-up grid to fit instead of needing to
+     page through days one at a time. */
+  .live-war-grid {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    gap: 0;
+    margin-bottom: 16px;
+    scrollbar-width: none;
+  }
+  .live-war-grid::-webkit-scrollbar { display: none; }
+  .live-day-col {
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    flex: 0 0 100%;
+    width: 100%;
+  }
+
+  /* Player cards use content-visibility:auto + a flat 40px
+     contain-intrinsic-size estimate (see the base "(D) Skip painting
+     off-screen rows" rule) to skip rendering cards far off screen — but
+     that estimate is only ever exactly right by coincidence. Whichever
+     day column is CURRENTLY on screen gets its cards fully measured/
+     rendered (their true height, whatever it actually is); the other 3
+     day columns, scrolled out of view horizontally, still have their
+     off-screen cards sized purely from the 40px estimate. The instant a
+     swipe brings one of THOSE columns into view, its cards get measured
+     for real and the column's total height can shift — which is exactly
+     "the final row isn't in the same place between days" and "changing
+     empty space under the bottom row," and can show as briefly
+     overlapping rows while that shift resolves. Disabling the skip
+     entirely on mobile — same fix as the Data tab's pinned-name pop-in
+     lag — removes the estimate/reality mismatch altogether; a ~50-65
+     card column is cheap enough to fully render up front. */
+  body.theme-light .live-player-card { content-visibility: visible !important; }
+
+  /* Player-card name can wrap onto a 2nd (or 3rd) line for a long name —
+     and since the SAME player's card renders independently in all 4 day
+     columns with different sibling content (a real fame/deck number on a
+     live/past day vs. the "-"/"-/4" placeholder on an upcoming one), the
+     leftover width available to the name can differ just enough between
+     columns to change how many lines it wraps to for ONE specific player,
+     while every other row (shorter names) stays single-line and lines up
+     fine. That is a real, measured per-row height mismatch between
+     columns for that one player — not a rendering-timing artifact like
+     the content-visibility fix above. Truncating with an ellipsis instead
+     of wrapping removes the possibility entirely: every card is exactly
+     one line tall regardless of name length or what its neighboring
+     fame/decks values happen to render as. min-width:0 is required for a
+     flex child to actually shrink enough to trigger the ellipsis instead
+     of just overflowing. */
+  .live-card-name { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; flex: 1 1 auto; min-width: 0; }
+  .live-card-right { flex: 0 0 auto; }
+
+  /* War summary table (bottom of the Live tab) — PORTRAIT ONLY, see the
+     landscape addendum below for why this isn't duplicated there.
+     The desktop colgroup (55% / 22.5% / 22.5%) only works because those
+     are percentages OF A WIDE desktop table — on a narrow phone,
+     table-layout:fixed still enforces those exact proportions, and
+     22.5% of ~350px isn't enough for "16/16" or a 4-digit fame number,
+     so the text overflowed its cell and painted over the next column.
+     Switching to table-layout:auto (an earlier attempt) fixed that but
+     let the browser's own auto-sizing decide the widths, making the
+     table considerably WIDER than the screen. Explicit tight pixel
+     widths for the two numeric columns give precise, predictable
+     control instead: Battles/Fame get just enough room for their
+     content, Player absorbs whatever's left (table-layout stays fixed,
+     inherited from the base rule above, so these widths are strictly
+     honored). Still wasn't enough on its own, though: the actual
+     "16/16"/fame values render inside a `.wcell` pill span, and
+     .live-summary-table td.td-avg .wcell (further up this file) gives
+     that pill its own min-width:120px + padding:5px 16px, sized for
+     desktop's roomy 22.5% columns — at very high specificity (2 classes
+     + a class+element combo), so it silently overrode these tight
+     column widths and kept overflowing regardless. Shrinking the pill
+     itself is the missing piece. */
+  .live-summary-table col:nth-child(1) { width: auto !important; }
+  .live-summary-table col:nth-child(2) { width: 62px !important; }
+  .live-summary-table col:nth-child(3) { width: 72px !important; }
+  body.theme-light .live-summary-table td.td-avg .wcell { min-width: 0 !important; padding: 3px 6px !important; }
+
+  /* Summary stat box (Battles Missed / War Placement / Cumulative Score /
+     Score vs Avg / Avg Player Score / Player Avg vs Avg / War Grade) —
+     dramatically smaller than desktop's 140px-min-width cards, which on
+     a phone screen wrap into an awkwardly tall stack of mostly-empty
+     boxes. Shrinking min-width lets 3-4 fit per row instead of 2. The
+     card's value is set via an inline style per-card in
+     buildWarSummaryBox()/buildWarSummaryPlaceholder() (22px, 28px for
+     the grade) — !important is required to override that inline value,
+     not just a lazy override of an already-!important rule. */
+  .live-stat-card { min-width: 78px !important; }
+  .live-stat-label, body.theme-light .live-stat-label { font-size: 8px !important; padding: 4px 4px !important; }
+  .live-stat-card > div:nth-child(2) { font-size: 14px !important; padding: 3px 8px !important; margin: 6px auto 2px !important; }
+  .live-stat-sub { font-size: 7px !important; padding: 0 4px 6px !important; }
+
+  /* Projection widget chrome — the SVG chart itself already scales
+     fluidly (width:100% + viewBox), but the surrounding padding/title/
+     legend were still full desktop size, wasting a lot of a narrow
+     screen and wrapping awkwardly. */
+  .projection-wrap { padding: 10px !important; margin: 12px 0 !important; }
+  .projection-title { font-size: 8px !important; gap: 6px !important; margin-bottom: 8px !important; flex-wrap: wrap; row-gap: 4px; }
+  .proj-legend { font-size: 8px !important; }
+  .proj-legend-dot { width: 16px !important; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MOBILE COMPATIBILITY — landscape phone orientation.
+   The portrait rules above force single-column/stacked layouts for
+   ANY narrow width, including landscape phones that are under 768px
+   but have meaningfully more horizontal room than portrait (e.g. an
+   iPhone SE landscape is 667px wide). Wider landscape phones (e.g.
+   iPhone 12 Pro at 812px) already exceed 768px and get the normal
+   desktop multi-column grid for free. This block only needs to
+   handle the in-between case: narrow AND landscape.
+   ═══════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) and (orientation: landscape) {
+  /* Chunk 2 addendum: two columns fit comfortably in landscape,
+     rather than one stretched card per row like portrait. */
+  .analysis-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* Chunk 4 addendum: landscape has noticeably less vertical room than
+     portrait (a phone on its side), so rows go even more compact here
+     on top of the portrait shrink — the goal is fitting as many rows
+     as possible without scrolling the Active Members list, especially
+     at the default 3-war window. Realistically a full ~60+ member
+     roster still won't fit entirely on one landscape screen at a
+     legible size — this gets meaningfully more rows on-screen, not a
+     guarantee every row fits regardless of roster size. Same
+     !important reasoning as the portrait Chunk 4 block above — needed
+     to beat higher-specificity legacy body.theme-light rules, safe
+     because this entire block is itself gated to narrow+landscape. */
+  thead th, body.theme-light thead th { padding: 3px 4px !important; }
+  thead th.war-th { padding: 3px 2px !important; }
+  td, body.theme-light tbody td { padding: 2px 4px !important; }
+  .player-name, body.theme-light .player-name { font-size: 11px !important; }
+  .pos-badge, body.theme-light .pos-badge { padding: 0px 3px !important; }
+  .td-part { min-width: 70px !important; }
+  .part-bar-bg { min-width: 26px !important; height: 5px !important; }
+  .td-trend { min-width: 22px !important; }
+  .trend-up, .trend-down { width: 16px !important; height: 16px !important; font-size: 9px !important; }
+  .wc, body.theme-light td.wc { padding: 2px 2px !important; min-width: 34px !important; }
+
+  /* Chunk 5 addendum: landscape has enough width to just shrink the
+     existing 4-up grid to fit rather than paging through one day at a
+     time — explicitly reverts the portrait block's scroll-snap flex
+     layout back to the desktop side-by-side grid, then shrinks each
+     day column's internals (header counters, player card text) enough
+     that ~180px-wide columns stay legible. */
+  .live-war-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+  .live-day-col { scroll-snap-align: none; scroll-snap-stop: normal; flex: none; width: auto; }
+  /* Shrunk further than the first pass — landscape still only has
+     ~140-180px per column, and the day header/rows were still feeling
+     large relative to that. live-day-cap/-mini-lbl/-counters-row didn't
+     have class hooks before (inline-styled with no way to target them),
+     so they were stuck at their desktop sizes/padding regardless of
+     whatever the numbers around them shrunk to. */
+  .live-day-header { padding: 4px 6px !important; }
+  /* Two separate wrapping bugs were found here via headless-browser
+     measurement (getBoundingClientRect on real mocked LIVE/DONE/UPCOMING
+     data), both causing the same symptom: a future/"UPCOMING" header
+     rendering a different height than a live/past one, which
+     .live-war-grid then stretches every sibling column to match —
+     re-creating the "headers different sizes" / row-misalignment bug
+     this section exists to prevent, but ONLY in landscape (portrait's
+     full-width single column always had enough room).
+       1) .live-day-label: "Day 3 — UPCOMING" is 4-5 characters longer
+          than "DONE"/"LIVE" — at the base (desktop) 2px letter-spacing it
+          wrapped to a 2nd line while the shorter labels didn't.
+       2) .live-day-members: a 2-digit contributor count ("55/50 members")
+          is wider than a 1-digit one ("0/50 members" on an UPCOMING day,
+          always 0 since no one's battled yet) — wide enough to wrap in
+          the narrower of the two flex children sharing the row with
+          fame/cumulative, even though the label bug above was already
+          fixed. Same fix applies: letter-spacing/no wrapping wasn't the
+          issue there, just the missing nowrap.
+     white-space:nowrap on every one of these number/label lines removes
+     the possibility of ANY of them wrapping regardless of how many
+     digits a given war's numbers happen to have — verified uniform
+     height across LIVE/DONE/UPCOMING at multiple landscape widths. */
+  .live-day-label { font-size: 6px !important; letter-spacing: 0.5px !important; white-space: nowrap !important; }
+  .live-day-counters-row { margin-top: 0 !important; }
+  .live-day-battles { font-size: 10px !important; white-space: nowrap !important; }
+  .live-day-members { font-size: 8px !important; white-space: nowrap !important; }
+  .live-day-fame-wrap { padding: 0 4px !important; }
+  .live-day-fame-val { font-size: 9px !important; white-space: nowrap !important; }
+  .live-day-cum-val { font-size: 8px !important; white-space: nowrap !important; }
+  .live-day-mini-lbl { font-size: 7px !important; margin-bottom: 0 !important; }
+  .live-day-cap { font-size: 8px !important; }
+  /* Too much crammed into ~146px: battles+members / fame / cumulative all
+     fit on desktop's wide columns but not here — on a real (non-placeholder)
+     day the wider "220/200"-style numbers pushed the cumulative block's
+     right edge past the header's own right edge, clipping the word and its
+     value (confirmed via getBoundingClientRect: cumValRect.right exceeded
+     headerRect.right by ~30px on a live/past day; future days' short "0/x"
+     placeholder happened to fit, which is why this only showed up on the
+     active/past days, not the upcoming ones). Rather than shrinking it
+     further and risking the same overflow on a bigger war, drop the
+     cumulative figure from the landscape header entirely — battles and
+     members already convey this day's progress, and the bottom war-summary
+     table already shows the true cumulative totals per player. fame-wrap's
+     existing flex:1 (inline, tab-live.js) absorbs the freed space. */
+  .live-day-cum-wrap { display: none !important; }
+  .live-card-inner { padding: 3px 6px !important; }
+  /* Same per-player row-height mismatch as the portrait block (see that
+     comment) — truncate instead of wrap so a card's height never depends
+     on whether its neighboring fame/decks value is a real number or the
+     "-"/"-/4" upcoming-day placeholder. Landscape's narrower ~140-180px
+     columns make a long name hit this far more often than portrait's
+     full-width single column does. */
+  .live-card-name { font-size: 9px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; flex: 1 1 auto; min-width: 0; }
+  .live-card-right { flex: 0 0 auto; }
+  .live-card-decks { font-size: 8px !important; min-width: 18px !important; }
+  .live-card-fame { font-size: 9px !important; min-width: 34px !important; }
+
+  /* Same content-visibility fix as the portrait block above (see that
+     comment) — landscape's 4 day columns are all visible at once rather
+     than swiped between, but each column can still need its own
+     vertical scroll for a full roster, so the same off-screen-card
+     size-estimate mismatch can still occur here. */
+  body.theme-light .live-player-card { content-visibility: visible !important; }
+
+  /* Explicitly REVERT the portrait-only summary-table shrink (col widths +
+     .wcell pill sizing, further up this file) for landscape. That rule
+     lives in the plain "@media (max-width:768px)" block, which has no
+     orientation condition — it matches ANY narrow width, landscape
+     included, not just portrait. A prior version of this comment assumed
+     "not adding a landscape rule" meant landscape kept inheriting the
+     desktop 55%/22.5%/22.5% + full-size .wcell pill unchanged; that
+     assumption was wrong (confirmed via getComputedStyle() measurement:
+     landscape was actually rendering the portrait-shrunk 62px/72px
+     columns and the 0-min-width/3px-6px pill, making the table look
+     oddly small in landscape even though "fixing" it was never the goal
+     there). Since this landscape block loads AFTER the plain mobile
+     block, these !important rules win on source order and restore
+     desktop's original sizing for landscape only — portrait keeps the
+     shrink it actually needs. */
+  .live-summary-table col:nth-child(1) { width: 55% !important; }
+  .live-summary-table col:nth-child(2) { width: 22.5% !important; }
+  .live-summary-table col:nth-child(3) { width: 22.5% !important; }
+  body.theme-light .live-summary-table td.td-avg .wcell { min-width: 120px !important; padding: 5px 16px !important; }
+
+  /* Summary stat box: landscape has more width than portrait but still
+     not much — keep the same dramatic shrink as the portrait block. */
+  .live-stat-card { min-width: 78px !important; }
+  .live-stat-label, body.theme-light .live-stat-label { font-size: 8px !important; padding: 4px 4px !important; }
+  .live-stat-card > div:nth-child(2) { font-size: 14px !important; padding: 3px 8px !important; margin: 6px auto 2px !important; }
+  .live-stat-sub { font-size: 7px !important; padding: 0 4px 6px !important; }
+}
+
 </style>
 </head>
 <body>
 
 <div id="loader">
-  <div class="loader-kings"><img src="assets/TwoFaceKingsFG.png" alt=""></div>
+  <!-- DESKTOP: .loader-curtain's columns are built by buildLoaderCurtain()
+       (main.js) -- a random spread of the same war-background art used
+       behind the header -- and swept away column by column as setLoader()
+       (parse.js) reports real fetch progress, revealing the king art
+       underneath. Title/bar/status stay OUTSIDE the hero box entirely so
+       real-time loading feedback is never hidden behind the curtain. -->
+  <div class="loader-hero">
+    <div class="loader-kings"><img src="assets/TwoFaceKingsFG.png" alt=""></div>
+    <div class="loader-curtain" id="loader-curtain"></div>
+  </div>
   <div class="loader-title"><img class="loader-logo" src="assets/Clash_Royale_Logo.png" alt="">UNITED CLASH</div>
   <div class="loader-bar-bg"><div class="loader-bar-fill" id="loader-bar"></div></div>
   <div class="loader-status" id="loader-status">INITIALIZING...</div>
+  <!-- MOBILE ONLY (see the min(width,height)-gated media query further up
+       this file): kings/logo/bar/status are hidden and this full-screen
+       row curtain takes over instead -- rows stacked top-to-bottom,
+       covering the WHOLE loader (title included), swept away top row
+       first as real progress comes in, revealing the enlarged "UNITED
+       CLASH" title (repositioned to the top) as it goes. A completely
+       separate element from .loader-curtain above, built/swept alongside
+       it by the same buildLoaderCurtain()/updateLoaderCurtain() (main.js)
+       -- desktop's design is untouched by any of this. -->
+  <div class="loader-curtain-mobile" id="loader-curtain-mobile"></div>
 </div>
+
+<!-- Pull-to-refresh indicator (initPullToRefresh(), main.js) -- a SIBLING
+     of #app, not a child: while pulling, #app itself gets a translateY
+     transform, and a transform on an ancestor creates a new containing
+     block for any position:fixed descendant, which would break this
+     staying pinned to the real viewport. Living outside #app avoids that
+     entirely, same reasoning as every other fixed overlay here. -->
+<div id="ptr-indicator" aria-hidden="true">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+</div>
+
+<!-- Shown once per fresh app load, only if navigator.onLine is false the
+     moment the loader finishes (see hideLoader() in parse.js). Requires OK
+     to dismiss -- never auto-closes, so it can't be missed on launch. -->
+<div id="offline-modal" class="offline-modal-overlay hidden">
+  <div class="offline-modal-box">
+    <div class="offline-modal-icon">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="1" y1="1" x2="23" y2="23"></line>
+        <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
+        <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
+        <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
+        <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
+        <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+        <line x1="12" y1="20" x2="12.01" y2="20"></line>
+      </svg>
+    </div>
+    <div class="offline-modal-title">YOU'RE OFFLINE</div>
+    <div class="offline-modal-msg">No internet connection right now — showing the last data saved on this device.</div>
+    <button class="offline-modal-ok" onclick="dismissOfflineModal()">OK</button>
+  </div>
+</div>
+
+<!-- Populated by showBattleDetailModal() (tab-live.js) when a Live tab
+     player card is clicked. Clicking the overlay (outside the box) closes
+     it; the box itself stops that click from bubbling. -->
+<div id="battle-detail-modal" class="battle-detail-overlay hidden" onclick="closeBattleDetailModal()"></div>
+<div id="card-debug-modal" class="battle-detail-overlay hidden" onclick="closeCardDebugModal()"></div>
+<!-- Populated by showDeckHistoryModal() (tab-live.js) when an Analysis
+     tab card's "Battle Info" button is clicked -- a SEPARATE overlay from
+     battle-detail-modal above (not tied to a pinned Live-tab card's
+     highlight state), reusing the same .battle-modal-box chrome. -->
+<div id="deck-history-modal" class="battle-detail-overlay hidden" onclick="closeDeckHistoryModal()"></div>
 
 <div id="app" style="opacity:0;transition:opacity 0.5s">
 
@@ -1376,12 +2817,15 @@ tbody tr { animation: fadeUp 0.2s ease both; }
       </div>
     </div>
     <div class="header-stats">
-      <div class="hstat"><div class="hstat-val" id="hs-wars">—</div><div class="hstat-lbl">Total Wars</div></div>
-      <div class="hstat"><div class="hstat-val" id="hs-active">—</div><div class="hstat-lbl">Active</div></div>
-      <div class="hstat"><div class="hstat-val" id="hs-top">—</div><div class="hstat-lbl">Best Avg</div></div>
-      <div class="hstat"><div class="hstat-val" id="hs-clan-avg">—</div><div class="hstat-lbl" id="hs-clan-avg-lbl">Clan Avg</div></div>
-      <div class="live-badge" id="live-badge" style="display:none"><div class="live-dot" id="live-dot"></div><span id="live-badge-text">LIVE WAR</span></div>
-      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Switch theme" style="display:none">☀ Royal</button>
+      <!-- Label FIRST, value second in all three (see the .hstat CSS): the
+           label is the card's silver header strip and the value is the sunk
+           well below it, exactly like the Live tab's .live-stat-card. -->
+      <div class="hstat"><div class="hstat-lbl">US Ranking</div><div class="hstat-val" id="hs-us-rank">—</div></div>
+      <div class="hstat"><div class="hstat-lbl">World Ranking</div><div class="hstat-val" id="hs-world-rank">—</div></div>
+      <div class="live-badge" id="live-badge" style="display:none">
+        <div class="live-badge-lbl hstat-lbl">War Status</div>
+        <div class="live-badge-val"><div class="live-dot" id="live-dot"></div><span class="live-badge-text" id="live-badge-text">LIVE WAR</span></div>
+      </div>
     </div>
   </div>
 
@@ -1389,20 +2833,42 @@ tbody tr { animation: fadeUp 0.2s ease both; }
     <img class="status-logo" src="assets/Clash_Royale_Logo.png" alt="">
     <span id="st-sheet" class="s-loading">Loading sheets...</span>
     <span id="st-api" class="s-loading">Connecting to CR API...</span>
-    <span id="st-time" style="display:none"><span id="st-time-val"></span></span>
+    <span id="st-time" style="display:none"><span id="st-time-val"></span><span id="st-offline-icon" class="wifi-off-icon" style="display:none" title="Offline — showing last saved data"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path><path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg></span></span>
   </div>
 
   <!-- CONTROL BAR -->
   <div class="control-bar">
-    <!-- MODE -->
-    <div class="btn-group">
+    <!-- MODE — always visible, on every layout: the one control that never
+         moves into a tab banner on mobile (it's what switches between
+         them). Carries an id because setMode() targets it directly. -->
+    <div class="btn-group" id="grp-mode">
       <button class="btn mode-active active" onclick="setMode('data')">Data</button>
       <button class="btn mode-live" onclick="setMode('live')">Live</button>
       <button class="btn mode-graphic" onclick="setMode('graphic')">Graphic</button>
       <button class="btn mode-analysis" onclick="setMode('analysis')">Analysis</button>
     </div>
 
-    <div class="divider"></div>
+    <!-- Search lives outside #control-bar-extra (unlike every other
+         control below) so it stays in the control bar on mobile, where
+         that wrapper is hidden entirely and each tab's own controls are
+         relocated into a banner in that tab's content instead
+         (mountTabControls(), main.js). Search is the exception because
+         it's the one control that belongs to no single tab AND is worth
+         keeping permanently visible. See the .search-box order:1 comment
+         for how desktop keeps its original visual position regardless of
+         where it physically sits in this markup. -->
+    <input class="search-box" type="text" placeholder="Search..." oninput="onSearch(this.value)" />
+
+    <!-- Every per-tab control: window/sort/battles/live-data/personal-best
+         plus the three per-mode extra rows. On DESKTOP this wrapper is
+         display:contents, so its children lay out as direct .control-bar
+         flex items exactly as if it didn't exist. On MOBILE it's hidden
+         outright and doubles as the parking spot these elements are moved
+         back to before each tab renders its own banner copy of them --
+         see parkTabControls()/mountTabControls() (main.js). Nothing in
+         here may rely on its position in this markup for styling: the
+         same elements have to look right in a tab banner too. -->
+    <div id="control-bar-extra" class="control-bar-extra">
 
     <!-- AVG WINDOW (Data mode) -->
     <div class="btn-group" id="grp-window">
@@ -1423,24 +2889,34 @@ tbody tr { animation: fadeUp 0.2s ease both; }
       <button class="btn" onclick="setSort('part')">Participation</button>
     </div>
     <div class="divider" id="div-battles"></div>
-    <div class="btn-group" id="grp-battles-wrap">
+    <div class="btn-group btn-group-single" id="grp-battles-wrap">
       <button class="btn" id="btn-battles" onclick="toggleBattles()">⚔ Battles</button>
     </div>
     <div class="divider" id="div-inclive"></div>
-    <div class="btn-group" id="grp-inclive">
+    <div class="btn-group btn-group-single" id="grp-inclive">
       <button class="btn" id="btn-inclive" onclick="toggleIncludeLive()">Live Data</button>
     </div>
-    <div class="divider"></div>
-    <div class="btn-group">
+    <div class="divider" id="div-pb-data"></div>
+    <div class="btn-group btn-group-single" id="grp-pb-data">
       <button class="btn" id="btn-pb-data" onclick="togglePersonalBest()">★ Personal Best</button>
     </div>
 
-
-    <input class="search-box" type="text" placeholder="Search..." oninput="onSearch(this.value)" />
-    <button class="btn refresh-btn" onclick="refreshAll()">↻ Refresh</button>
+    <!-- Refresh: stays here (order:2 keeps it last on desktop, unchanged),
+         and is pulled into whichever tab banner is showing on mobile --
+         see mountTabControls() (main.js) for why it rides along rather
+         than staying in the bar there. -->
+    <button class="btn refresh-btn" id="btn-refresh" onclick="refreshAll()">↻ Refresh</button>
 
   <!-- LIVE MODE CONTROLS -->
-  <div id="grp-live" style="display:none;gap:8px;align-items:center;padding-top:8px;border-top:1px solid var(--border);width:100%">
+  <!-- No width:100%/border-top here (unlike before) -- see the
+       .mode-ctrl-row mobile-only CSS rule for why: those properties forced
+       this onto its own row unconditionally, even on desktop where there
+       was room to share the mode switcher's row like the Data tab's own
+       controls do. As a plain flex child it now wraps only when it
+       actually needs to, matching Data tab's row-count. Kept mobile-only
+       via .mode-ctrl-row so the mobile layout (which DOES need its own
+       row) is unaffected. -->
+  <div id="grp-live" class="mode-ctrl-row" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
     <span class="g-ctrl-label">Sort:</span>
     <div class="btn-group">
       <button class="btn active" onclick="setLiveSort('score')">Score</button>
@@ -1454,10 +2930,12 @@ tbody tr { animation: fadeUp 0.2s ease both; }
       <button class="btn" onclick="setLiveWindow(10)">10W</button>
       <button class="btn active" onclick="setLiveWindow(0)">All</button>
     </div>
+    <div class="divider"></div>
+    <button class="btn" onclick="showCardDebugModal()">Card Art Debug</button>
   </div>
 
   <!-- GRAPHIC MODE CONTROLS -->
-  <div id="grp-graphic" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;width:100%;padding-top:8px;border-top:1px solid var(--border)">
+  <div id="grp-graphic" class="mode-ctrl-row" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
     <span class="g-ctrl-label">Player chart avg:</span>
     <div class="btn-group">
       <button class="btn active" onclick="setGMetric('personal')">Personal Avg</button>
@@ -1470,23 +2948,40 @@ tbody tr { animation: fadeUp 0.2s ease both; }
       <button class="btn" onclick="setGSort('alpha')">A–Z</button>
     </div>
     <div class="divider"></div>
-    <div class="btn-group" id="grp-inclive-g">
+    <div class="btn-group btn-group-single" id="grp-inclive-g">
       <button class="btn" id="btn-inclive-g" onclick="toggleIncludeLive()">Live Data</button>
     </div>
     <div class="divider"></div>
-    <div class="btn-group">
+    <div class="btn-group btn-group-single">
       <button class="btn" id="btn-pb-graphic" onclick="togglePersonalBest()">★ Personal Best</button>
+    </div>
+    <div class="divider"></div>
+    <!-- The app's ONE Opponents toggle. It used to have a mobile-only twin
+         (#btn-opponents-m) hand-built into the Graphic tab's banner; that
+         copy is gone -- on mobile this very button is relocated into the
+         banner instead (mountTabControls(), main.js), which is also what
+         fixed it rendering as bare grey text there before being tapped. -->
+    <div class="btn-group btn-group-single">
+      <button class="btn" id="btn-opponents-g" onclick="toggleOpponents()" title="Overlay other clans' fame per war on the Clan Total chart, color-coded by that week's rank (Colosseum weeks only — other weeks' STANDINGS data isn't true fame)">Opponents</button>
     </div>
   </div>
 
-  <div id="grp-analysis" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;width:100%;padding-top:8px;border-top:1px solid var(--border)">
+  <div id="grp-analysis" class="mode-ctrl-row" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
     <span class="g-ctrl-label">Show:</span>
     <div class="btn-group">
       <button class="btn active" id="an-active-btn" onclick="setAnalysisFilter('active')">Active</button>
       <button class="btn" id="an-inactive-btn" onclick="setAnalysisFilter('inactive')">Inactive</button>
     </div>
+    <div class="divider"></div>
+    <span class="g-ctrl-label">Score:</span>
+    <div class="btn-group">
+      <button class="btn active" id="an-score-complex" onclick="setAnalysisScoreMode('complex')" title="Current full scoring algorithm">Complex</button>
+      <button class="btn" id="an-score-basic" onclick="setAnalysisScoreMode('basic')" title="Battle completion % and participation, weighted toward players with more wars">Basic</button>
+      <button class="btn" id="an-score-competitive" onclick="setAnalysisScoreMode('competitive')" title="Fame per war and consistency, weighted toward players with more wars">Competitive Basic</button>
+    </div>
   </div>
 
+    </div><!-- end control-bar-extra -->
   </div><!-- end control-bar -->
 
   <div class="main" id="main"></div>
@@ -1509,4 +3004,18 @@ tbody tr { animation: fadeUp 0.2s ease both; }
 <script src="js/tab-graphic.js"></script>
 <script src="js/tab-analysis.js"></script>
 <script src="js/main.js"></script>
+<!-- Chunk 7/8: register the cache-first-shell / network-first-live-data
+     service worker. Registration itself is a no-op (fails silently) on
+     browsers without SW support or on an insecure (non-HTTPS,
+     non-localhost) origin, so no feature-detection guard beyond the
+     'serviceWorker' in navigator check is needed. Deferred to the
+     window load event so it never competes with the page's own
+     first-load fetches for bandwidth/priority. -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('service-worker.js');
+  });
+}
+</script>
 <!-- Cloudflare Pages Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "b7554a8f5ac44265b6127e87937b9dca"}'></script><!-- Cloudflare Pages Analytics --></body>
