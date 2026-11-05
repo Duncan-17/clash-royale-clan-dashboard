@@ -1,6 +1,6 @@
 # United Clash Dashboard
 
-A war-performance dashboard I built for my 50-member Clash Royale clan. It tracks every player across every clan war, shows the current war live, and recommends who to promote, demote, or remove based on a scoring model I designed with the clan's leaders.
+A war-performance dashboard I built for my 50-member Clash Royale clan. It tracks every player across every clan war, shows the current war live, and recommends who to promote, demote, or remove based on a scoring model I designed with the clan's leaders. It is designed to imitate the in game UI and style. 
 
 **Live:** [unitedclash.pages.dev](https://unitedclash.pages.dev) · works on phone and desktop, installable as an app
 
@@ -8,7 +8,7 @@ A war-performance dashboard I built for my 50-member Clash Royale clan. It track
 
 ## Why I built it
 
-Running a 50-person clan meant making promotion and kick decisions from memory and gut feel, and the in-game stats only show the current war. I wanted a history of who actually shows up, war after war, and a fair, consistent way to make roster decisions. After release, the leadership team started using its recommendations for promotions and kicks.
+Running a 50-person clan meant making promotion and kick decisions from memory, and the in-game stats only show the current war. At best, you can pull the most recent 10 wars from the API. I wanted a long term history/record of who actually shows up, war after war, and a fair, consistent way to make roster decisions. After release, the leadership team started using its recommendations for promotions and kicks and there was a measurable improvement in clan performance with our clan rising to #120 in the International leaderboards.
 
 ## What it does
 
@@ -46,9 +46,11 @@ Clash Royale API ──► Google Apps Script (runs on a schedule) ──► Goo
 
 **Refactored for maintainability.** The app started as a single 4,500-line `index.html`. I split it into separate files for data parsing, calculations, and each tab, and separated calculation from rendering, without adding a build step.
 
+**Responding to feedback.** This was designed to be used by clan leadership which required a wide array of needs be met (Iphone, android, desktop, international access, offline-access, and custom features). This required me to have constant communication and design changes based on feedback and dynamic needs.
+
 ## How I built it
 
-I designed the dashboard, the data pipeline, and the scoring model, and built it with Claude Code as my pair programmer, which wrote much of the implementation while I directed the design, tested against real war data each week, and worked with the clan's leaders on what the recommendations should be. [`CLAUDE.md`](CLAUDE.md) holds the project notes I kept for those sessions.
+I designed the dashboard, the data pipeline, and the scoring model, and built it with Claude Code as my pair programmer, which wrote much of the implementation (HTML visuals) while I directed the design, tested against real war data each week, and worked with the clan's leaders on what the recommendations should be. This app changed drastically during development based on clan member feedback and requests. [`CLAUDE.md`](CLAUDE.md) holds the project notes I kept for those sessions.
 
 ## Project structure
 
