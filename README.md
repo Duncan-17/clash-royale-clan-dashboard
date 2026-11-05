@@ -72,4 +72,4 @@ It's a static site, so you can serve the folder with any static server (for exam
 
 ---
 
-*This content is not affiliated with, endorsed, sponsored, or specifically approved by Supercell and Supercell is not responsible for it. For more information see Supercell's Fan Content Policy: www.supercell.com/fan-content-policy. Game images in `assets/` belong to Supercell.*
+*This material is unofficial and is not endorsed by Supercell. For more information see Supercell's Fan Content Policy: www.supercell.com/fan-content-policy. Game images in `assets/` belong to Supercell.*
